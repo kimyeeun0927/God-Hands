@@ -1,0 +1,209 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@800&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --accent: #8b5cf6;
+  --bg: #050508;
+  --panel: rgba(10, 10, 20, 0.85);
+  --border: rgba(139, 92, 246, 0.2);
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Syne', sans-serif;
+}
+
+body {
+  background: var(--bg);
+  color: #e2e8f0;
+  font-family: var(--mono);
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Three.js 캔버스 배경 */
+#effect-container {
+  position: fixed; inset: 0; z-index: 0;
+}
+#effect-container canvas { width: 100% !important; height: 100% !important; }
+
+/* UI 오버레이 */
+#ui-overlay {
+  position: fixed; inset: 0; z-index: 10;
+  pointer-events: none;
+}
+
+#header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 24px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+}
+
+.logo {
+  font-family: var(--sans);
+  font-size: 20px;
+  letter-spacing: 4px;
+  font-weight: 800;
+}
+.logo span { color: var(--accent); }
+
+/* 상태 pill */
+.pill {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 1px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.dot { width: 6px; height: 6px; border-radius: 50%; background: #4a5568; }
+.pill.active .dot { background: #10b981; box-shadow: 0 0 6px #10b981; animation: blink 1.4s infinite; }
+.pill.loading .dot { background: #f6e05e; }
+.pill.error .dot { background: #fc8181; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+#jutsu-name {
+  margin-left: auto;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  transition: color 0.3s;
+}
+
+/* 신뢰도 바 */
+#confidence-bar-wrap {
+  position: absolute;
+  top: 65px; left: 0; right: 0;
+  height: 3px;
+  background: rgba(255,255,255,0.05);
+  display: flex; align-items: center;
+}
+#confidence-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.2s, background 0.3s;
+}
+#confidence-label {
+  position: absolute;
+  right: 12px; top: 5px;
+  font-size: 10px; color: rgba(255,255,255,0.4);
+}
+
+/* 웹캠 */
+#camera-container {
+  position: fixed;
+  bottom: 80px; right: 20px;
+  width: 280px; height: 200px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  z-index: 20;
+  background: #000;
+  transition: outline 0.1s;
+}
+#input-video {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  opacity: 0.85;
+}
+#landmark-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  transform: scaleX(-1);
+}
+
+/* 모드 바 */
+#mode-bar {
+  position: fixed;
+  bottom: 20px; left: 50%;
+  transform: translateX(-50%);
+  display: flex; gap: 8px;
+  z-index: 30;
+}
+.mode-btn {
+  padding: 8px 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: rgba(255,255,255,0.5);
+  font-family: var(--mono);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: all 0.2s;
+}
+.mode-btn:hover { border-color: var(--accent); color: #fff; }
+.mode-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(139,92,246,0.1); }
+
+/* 데이터 수집 패널 */
+#collect-panel {
+  position: fixed;
+  top: 80px; left: 20px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  z-index: 30;
+  backdrop-filter: blur(10px);
+  min-width: 220px;
+}
+#collect-panel.hidden { display: none; }
+
+#collect-info {
+  display: flex; flex-direction: column; gap: 4px;
+  margin-bottom: 12px;
+  font-size: 11px; color: rgba(255,255,255,0.6);
+}
+
+#jutsu-selector {
+  display: flex; flex-direction: column; gap: 6px;
+  margin-bottom: 12px;
+}
+.jutsu-btn {
+  padding: 6px 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255,255,255,0.7);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s;
+}
+.jutsu-btn:hover, .jutsu-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(139,92,246,0.1);
+}
+
+#save-btn {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: rgba(139,92,246,0.15);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11px; font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+#save-btn:hover { background: rgba(139,92,246,0.3); }
+
+/* 스페이스바 힌트 */
+#collect-panel::after {
+  content: 'SPACE → 캡처';
+  display: block;
+  margin-top: 8px;
+  font-size: 9px;
+  text-align: center;
+  color: rgba(255,255,255,0.3);
+  letter-spacing: 1px;
+}
