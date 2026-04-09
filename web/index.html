@@ -5,24 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HANDSEAL</title>
   <link rel="stylesheet" href="src/ui/style.css" />
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-      }
-    }
-  </script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
 </head>
 <body>
+  <video id="input-video" playsinline autoplay muted></video>
+  <canvas id="main-canvas"></canvas>
 
-  <!-- 배경 캔버스 (Three.js 이펙트) -->
-  <div id="effect-container"></div>
-
-  <!-- UI 오버레이 -->
   <div id="ui-overlay">
     <header id="header">
       <div class="logo">HAND<span>SEAL</span></div>
@@ -32,41 +19,42 @@
       </div>
       <div id="jutsu-name">손을 보여주세요</div>
     </header>
-
     <div id="confidence-bar-wrap">
       <div id="confidence-bar"></div>
       <span id="confidence-label">0%</span>
     </div>
   </div>
 
-  <!-- 웹캠 + 랜드마크 캔버스 -->
-  <div id="camera-container">
-    <video id="input-video" playsinline></video>
-    <canvas id="landmark-canvas"></canvas>
-  </div>
-
-  <!-- 모드 전환 버튼 -->
   <div id="mode-bar">
     <button class="mode-btn active" data-mode="demo">DEMO</button>
     <button class="mode-btn" data-mode="collect">DATA COLLECT</button>
-    <button class="mode-btn" data-mode="debug">DEBUG</button>
   </div>
 
-  <!-- 데이터 수집 패널 (collect 모드에서만 표시) -->
   <div id="collect-panel" class="hidden">
     <div id="collect-info">
       <span id="collect-jutsu">술식: —</span>
-      <span id="collect-count">수집: 0개</span>
+      <span id="collect-count">총 수집: 0개</span>
+    </div>
+    <div class="collect-settings">
+      <div style="flex:1"><label>카운트다운 (초)</label><input type="number" id="cfg-countdown" value="3" min="1" max="10" /></div>
+      <div style="flex:1"><label>녹화 시간 (초)</label><input type="number" id="cfg-duration" value="3" min="1" max="10" /></div>
     </div>
     <div id="jutsu-selector">
-      <button class="jutsu-btn" data-jutsu="shadow_clone">분신술</button>
-      <button class="jutsu-btn" data-jutsu="rasengan">나선환</button>
-      <button class="jutsu-btn" data-jutsu="chidori">치도리</button>
-      <button class="jutsu-btn" data-jutsu="sharingan">사륜안</button>
-      <button class="jutsu-btn" data-jutsu="none">없음(Negative)</button>
+      <button class="jutsu-btn" data-jutsu="boar">돼지 (亥)</button>
+      <button class="jutsu-btn" data-jutsu="rabbit">토끼 (卯)</button>
+      <button class="jutsu-btn" data-jutsu="rat">쥐 (子)</button>
+      <button class="jutsu-btn" data-jutsu="none">없음 (Negative)</button>
     </div>
+    <button id="record-btn" disabled><span id="record-btn-icon">⏺</span><span id="record-btn-text">술식을 선택하세요</span></button>
     <button id="save-btn">💾 CSV 저장</button>
   </div>
+
+  <div id="countdown-overlay">
+    <div id="countdown-number">3</div>
+    <div id="countdown-label">포즈를 준비하세요</div>
+  </div>
+  <div id="record-indicator"><span class="rec-dot"></span>REC <span id="rec-jutsu-label"></span></div>
+  <div id="done-toast">✓ <span id="done-msg"></span></div>
 
   <script type="module" src="src/main.js"></script>
 </body>
