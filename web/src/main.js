@@ -157,6 +157,17 @@ function setupCollectUI() {
     collector.startRecording(selectedJutsu);
   });
   document.getElementById('save-btn').addEventListener('click', () => collector.exportCSV());
+
+  document.getElementById('undo-btn').addEventListener('click', () => {
+    const removed = collector.undo();
+    if (removed > 0) {
+      document.getElementById('collect-count').textContent = `총 수집: ${collector.count}개`;
+      document.getElementById('done-msg').textContent = `${removed}프레임 삭제됨 (누적 ${collector.count}개)`;
+      const toast = document.getElementById('done-toast');
+      toast.classList.add('visible');
+      setTimeout(() => toast.classList.remove('visible'), 2500);
+    }
+  });
 }
 
 function onCollectorState({ phase, remaining, captured, count }) {

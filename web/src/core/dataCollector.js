@@ -13,6 +13,7 @@ export class DataCollector {
   constructor(onStateChange) {
     this.rows         = [];
     this.count        = 0;
+    this._snapshots   = []; // undo용 스냅샷 스택
     this._currentLms  = null;
     this._isRecording = false;
     this._onStateChange = onStateChange ?? (() => {});
@@ -76,6 +77,8 @@ export class DataCollector {
     this._isRecording   = true;
     this._frameCount    = 0;
     const startCount    = this.count;
+    // 녹화 시작 전 현재 상태를 스냅샷으로 저장 (undo용)
+    this._snapshots.push({ rowCount: this.rows.length, count: this.count });
 
     this._onStateChange({ phase: 'recording', count: this.count });
 
@@ -102,6 +105,24 @@ export class DataCollector {
     this.rows.push([...r, ...l, this._jutsuTarget]);
     this.count++;
     this._frameCount++;
+  }
+
+  /** 마지막 녹화분 취소 */
+  undo() {
+    if (this._snapshots.length === 0) {
+      alert('되돌릴 녹화가 없습니다.');
+      return 0;
+    }
+    const snap = this._snapshots.pop();
+    const removed = this.rows.length - snap.rowCount;
+    this.rows.splice(snap.rowCount);
+    this.count = snap.count;
+    this._onStateChange({ phase: 'idle', count: this.count });
+    return removed;
+  }
+
+  canUndo() {
+    return this._snapshots.length > 0;
   }
 
   exportCSV() {
