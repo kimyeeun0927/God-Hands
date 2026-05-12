@@ -5,25 +5,34 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HANDSEAL</title>
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.all.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;700&family=Syne:wght@800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="src/ui/style.css" />
 </head>
 <body>
   <video id="input-video" playsinline autoplay muted></video>
   <canvas id="main-canvas"></canvas>
 
-  <div id="ui-overlay">
-    <header id="header">
-      <div class="logo">HAND<span>SEAL</span></div>
-      <div id="status-pill" class="pill idle">
-        <span class="dot"></span>
-        <span id="status-text">대기중</span>
+  <!-- Dev 패널: 백틱(`) 키로 토글 -->
+  <div id="dev-overlay" class="hidden">
+
+    <div id="ui-overlay">
+      <header id="header">
+        <div class="logo">HAND<span>SEAL</span></div>
+        <div id="status-pill" class="pill idle">
+          <span class="dot"></span>
+          <span id="status-text">대기중</span>
+        </div>
+        <div id="jutsu-name">손을 보여주세요</div>
+      </header>
+      <div id="confidence-bar-wrap">
+        <div id="confidence-bar"></div>
+        <span id="confidence-label">0%</span>
       </div>
-      <div id="jutsu-name">손을 보여주세요</div>
-    </header>
-    <div id="confidence-bar-wrap">
-      <div id="confidence-bar"></div>
-      <span id="confidence-label">0%</span>
     </div>
+
+    <div id="dev-badge">DEV &nbsp;|&nbsp; ` to close</div>
   </div>
 
   <div id="mode-bar">
@@ -62,6 +71,8 @@
   </div>
   <div id="record-indicator"><span class="rec-dot"></span>REC <span id="rec-jutsu-label"></span></div>
   <div id="done-toast">✓ <span id="done-msg"></span></div>
+
+  <div id="fps-counter">-- FPS</div>
 
   <script type="module" src="src/main.js"></script>
 </body>
