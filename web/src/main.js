@@ -1,22 +1,20 @@
-import { FilesetResolver, HandLandmarker, FaceLandmarker }
+import { FilesetResolver, HandLandmarker }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/vision_bundle.js';
 
 import { GestureClassifier } from './core/gestureClassifier.js';
 import { UIController }      from './ui/uiController.js';
 import { DataCollector }     from './core/dataCollector.js';
 import { AREffectEngine }    from './effects/arEffectEngine.js';
-
-const state = { mode: 'demo', currentJutsu: 'none' };
+import { SceneManager }      from './game/SceneManager.js';
+import { OnboardingScene }   from './game/scenes/OnboardingScene.js';
 
 const video  = document.getElementById('input-video');
 const canvas = document.getElementById('main-canvas');
 const ctx    = canvas.getContext('2d');
 
-const ui        = new UIController(state);
-const classifier = new GestureClassifier();
-const arFx      = new AREffectEngine(canvas, ctx);
-const collector = new DataCollector(onCollectorState);
-window._collector = collector;
+// 게임 모드가 기본, 백틱(`) 으로 dev 패널 토글
+let devMode = false;
+const devState = { mode: 'collect' };
 
 function resizeCanvas() {
   canvas.width  = window.innerWidth;
@@ -30,7 +28,6 @@ function normalize(landmarks, handednessList) {
   if (!landmarks) return result;
   landmarks.forEach((lms, idx) => {
     const label = handednessList?.[idx]?.[0]?.categoryName;
-    // Tasks API: 미러링 카메라 기준 Left/Right 반전 없음
     const side  = label === 'Left' ? 'right' : 'left';
     const wrist = lms[0];
     const arr   = new Float32Array(63);
@@ -45,6 +42,18 @@ function normalize(landmarks, handednessList) {
 }
 
 async function init() {
+  const devOverlay = document.getElementById('dev-overlay');
+
+  // dev 패널 토글
+  document.addEventListener('keydown', e => {
+    if (e.key === '`') {
+      devMode = !devMode;
+      devOverlay.classList.toggle('hidden', !devMode);
+    }
+  });
+
+  // 상태 표시 (dev 모드에서만 의미 있음)
+  const ui = new UIController(devState);
   ui.setStatus('loading', 'MediaPipe 로딩중...');
 
   // 카메라 스트림
@@ -54,12 +63,11 @@ async function init() {
   video.srcObject = stream;
   await new Promise(res => { video.onloadedmetadata = () => video.play().then(res); });
 
-  // Tasks Vision WASM 로드
+  // Tasks Vision WASM
   const vision = await FilesetResolver.forVisionTasks(
     'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm'
   );
 
-  // HandLandmarker 초기화
   const handLandmarker = await HandLandmarker.createFromOptions(vision, {
     baseOptions: {
       modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
@@ -72,90 +80,108 @@ async function init() {
     minTrackingConfidence: 0.3,
   });
 
-  // FaceLandmarker 초기화 (사륜안용)
-  const faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-      delegate: 'GPU',
-    },
-    runningMode: 'VIDEO',
-    numFaces: 1,
-  });
+  const classifier   = new GestureClassifier();
+  const arFx         = new AREffectEngine(canvas, ctx);
+  const collector    = new DataCollector(onCollectorState);
+  window._collector  = collector;
 
   classifier.loadModel().catch(() => {});
-  setupCollectUI();
+  setupCollectUI(collector);
   ui.setStatus('active', '실행중');
 
-  // ── 메인 루프 ──────────────────────────────────────
-  let lastTime = -1;
+  // 게임 씬 매니저 초기화
+  const scenes = new SceneManager(canvas, ctx, video);
+  scenes.goto(OnboardingScene);
+
+  let lastTime = performance.now();
+
+  const fpsEl       = document.getElementById('fps-counter');
+  const FPS_SAMPLES = 60;
+  const fpsTimes    = [];
+  let fpsDisplay    = 0;
+
+  function updateFPS(now) {
+    fpsTimes.push(now);
+    if (fpsTimes.length > FPS_SAMPLES) fpsTimes.shift();
+    if (fpsTimes.length < 2) return;
+    const fps = Math.round((fpsTimes.length - 1) / (fpsTimes[fpsTimes.length - 1] - fpsTimes[0]) * 1000);
+    if (fps !== fpsDisplay) {
+      fpsDisplay = fps;
+      fpsEl.textContent = `${fps} FPS`;
+      fpsEl.className = fps >= 50 ? 'fps-high' : fps >= 30 ? 'fps-mid' : 'fps-low';
+    }
+  }
 
   async function loop() {
     requestAnimationFrame(loop);
-
     if (video.readyState < 2) return;
+
     const now = performance.now();
-    if (now === lastTime) return;
-    lastTime = now;
+    const dt  = Math.min(now - lastTime, 100); // 최대 100ms 캡
+    lastTime  = now;
+    updateFPS(now);
 
-    // 손 감지
-    const handResult = handLandmarker.detectForVideo(video, now);
-    const landmarks  = handResult.landmarks;
-    const handedness = handResult.handednesses;
+    const handResult  = handLandmarker.detectForVideo(video, now);
+    const { landmarks, handednesses } = handResult;
+    const normalized  = normalize(landmarks, handednesses);
 
-    const normalized = normalize(landmarks, handedness);
-
-    if (state.mode === 'collect') {
-      collector.setLandmarks(normalized);
-      arFx.draw('none', landmarks?.length ? landmarks : null, video);
+    // ── Dev / 데이터 수집 모드 ────────────────────────────
+    if (devMode) {
+      if (devState.mode === 'collect') {
+        collector.setLandmarks(normalized);
+        arFx.draw('none', landmarks?.length ? landmarks : null, video);
+        return;
+      }
+      // dev demo 모드
+      if (!landmarks?.length) {
+        arFx.draw('none', null, video);
+        ui.setJutsu('none'); ui.setConfidence(0);
+        return;
+      }
+      const { jutsu, confidence } = await classifier.predict(normalized);
+      ui.setJutsu(jutsu); ui.setConfidence(confidence);
+      arFx.draw(jutsu, landmarks, video);
       return;
     }
 
-    if (!landmarks?.length) {
-      arFx.draw('none', null, video);
-      ui.setJutsu('none');
-      ui.setConfidence(0);
-      return;
+    // ── 게임 모드 ─────────────────────────────────────────
+    const handState = { gesture: 'none', confidence: 0, landmarks, handednesses, normalized };
+    if (landmarks?.length) {
+      const { jutsu, confidence } = await classifier.predict(normalized);
+      handState.gesture    = jutsu;
+      handState.confidence = confidence;
     }
 
-    const { jutsu, confidence } = await classifier.predict(normalized);
-    state.currentJutsu = jutsu;
-    ui.setJutsu(jutsu);
-    ui.setConfidence(confidence);
-
-    // 사륜안이면 얼굴도 감지
-    let faceLms = null;
-    if (jutsu === 'sharingan') {
-      const faceResult = faceLandmarker.detectForVideo(video, now);
-      faceLms = faceResult.faceLandmarks?.[0] ?? null;
-      arFx.updateFace(faceLms);
-    }
-
-    arFx.draw(jutsu, landmarks, video);
+    scenes.update(dt, handState);
+    scenes.render(handState);
   }
 
   loop();
 }
 
-// ── 수집 모드 UI ─────────────────────────────────────
-function setupCollectUI() {
-  let selectedJutsu = null;
+// ── 데이터 수집 UI (dev 패널 내부) ───────────────────────────
+
+function setupCollectUI(collector) {
   document.querySelectorAll('.jutsu-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.jutsu-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      selectedJutsu = btn.dataset.jutsu;
-      document.getElementById('collect-jutsu').textContent = `술식: ${selectedJutsu}`;
+      const jutsu = btn.dataset.jutsu;
+      document.getElementById('collect-jutsu').textContent = `술식: ${jutsu}`;
       document.getElementById('record-btn').disabled = false;
       document.getElementById('record-btn-text').textContent = '녹화 시작';
     });
   });
+
   document.getElementById('record-btn').addEventListener('click', () => {
     const cd = parseInt(document.getElementById('cfg-countdown').value) || 3;
     const dr = parseInt(document.getElementById('cfg-duration').value)  || 3;
     collector.COUNTDOWN_SEC      = cd;
     collector.RECORD_DURATION_MS = dr * 1000;
-    collector.startRecording(selectedJutsu);
+    const active = document.querySelector('.jutsu-btn.active');
+    if (active) collector.startRecording(active.dataset.jutsu);
   });
+
   document.getElementById('save-btn').addEventListener('click', () => collector.exportCSV());
 
   document.getElementById('undo-btn').addEventListener('click', () => {
@@ -167,6 +193,16 @@ function setupCollectUI() {
       toast.classList.add('visible');
       setTimeout(() => toast.classList.remove('visible'), 2500);
     }
+  });
+
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      devState.mode = btn.dataset.mode;
+      document.getElementById('collect-panel')
+        .classList.toggle('hidden', devState.mode !== 'collect');
+    });
   });
 }
 
@@ -197,16 +233,6 @@ function onCollectorState({ phase, remaining, captured, count }) {
   }
 }
 
-document.querySelectorAll('.mode-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    state.mode = btn.dataset.mode;
-    ui.onModeChange(state.mode);
-  });
-});
-
 init().catch(err => {
   console.error('[HANDSEAL]', err);
-  ui.setStatus('error', '오류: ' + err.message);
 });

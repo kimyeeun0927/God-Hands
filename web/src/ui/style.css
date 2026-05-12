@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;700&family=Syne:wght@800&display=swap');
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --accent: #8b5cf6; --bg: #050508;
@@ -47,6 +47,20 @@ body { background: #000; color: #e2e8f0; font-family: var(--mono); overflow: hid
 .mode-btn:hover { border-color: var(--accent); color: #fff; }
 .mode-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(139,92,246,0.15); }
  
+/* ── FPS 카운터 ── */
+#fps-counter {
+  position: fixed; top: 12px; right: 16px;
+  z-index: 50;
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  color: rgba(255,255,255,0.55);
+  letter-spacing: 1px;
+  pointer-events: none;
+  transition: color 0.3s;
+}
+#fps-counter.fps-low  { color: #fc8181; }
+#fps-counter.fps-mid  { color: #f6e05e; }
+#fps-counter.fps-high { color: #68d391; }
+
 /* ── 데이터 수집 패널 ── */
 #collect-panel { position: fixed; top: 70px; left: 20px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; z-index: 30; backdrop-filter: blur(12px); min-width: 220px; }
 #collect-panel.hidden { display: none; }
@@ -76,3 +90,20 @@ body { background: #000; color: #e2e8f0; font-family: var(--mono); overflow: hid
 @keyframes recBlink { 0%,100%{opacity:1} 50%{opacity:0.2} }
 #done-toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%) translateY(20px); z-index: 50; padding: 10px 24px; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.5); border-radius: 8px; font-size: 12px; font-weight: 700; letter-spacing: 1px; color: #6ee7b7; opacity: 0; transition: opacity 0.3s, transform 0.3s; }
 #done-toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── Dev 오버레이 ── */
+#dev-overlay { position: fixed; inset: 0; z-index: 200; pointer-events: none; }
+#dev-overlay.hidden { display: none; }
+#dev-overlay > * { pointer-events: auto; }
+/* dev 오버레이 안의 countdown/toast는 pointer-events 불필요 */
+#dev-overlay #countdown-overlay,
+#dev-overlay #record-indicator,
+#dev-overlay #done-toast { pointer-events: none; }
+
+#dev-badge {
+  position: fixed; bottom: 8px; right: 12px;
+  font-size: 10px; letter-spacing: 1px;
+  color: rgba(255,255,255,0.35);
+  font-family: var(--mono);
+  z-index: 210;
+}
