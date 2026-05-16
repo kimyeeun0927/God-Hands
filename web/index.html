@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HANDSEAL</title>
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.all.min.js"></script>
   <link rel="stylesheet" href="src/ui/style.css" />
 </head>
 <body>
@@ -43,7 +44,12 @@
       <button class="jutsu-btn" data-jutsu="boar">돼지 (亥)</button>
       <button class="jutsu-btn" data-jutsu="rabbit">토끼 (卯)</button>
       <button class="jutsu-btn" data-jutsu="rat">쥐 (子)</button>
-      <button class="jutsu-btn" data-jutsu="none">없음 (Negative)</button>
+      <button class="jutsu-btn" data-jutsu="monkey">원숭이 (申)</button>
+      <button class="jutsu-btn" data-jutsu="dog">개 (戌)</button>
+      <button class="jutsu-btn" data-jutsu="snake">뱀 (巳)</button>
+      <button class="jutsu-btn" data-jutsu="o">O</button>
+      <button class="jutsu-btn" data-jutsu="x">X</button>
+      <button class="jutsu-btn" data-jutsu="none">none</button>
     </div>
     <button id="record-btn" disabled><span id="record-btn-icon">⏺</span><span id="record-btn-text">술식을 선택하세요</span></button>
     <button id="undo-btn">↩ 마지막 녹화 취소</button>
