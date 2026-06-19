@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import classification_report, confusion_matrix
-import glob, os
+import glob, os, json
 
 # ── 설정 ──────────────────────────────────────────────────
 DATA_DIR   = 'ml/data/raw'
@@ -29,6 +29,21 @@ LR         = 1e-3
 
 os.makedirs(MODEL_DIR, exist_ok=True)
 
+# ── 0. 정규화 (main.js normalize()와 동일 로직) ──────────
+def normalize_landmarks(X: np.ndarray) -> np.ndarray:
+    """
+    X: (N, 126) raw MediaPipe 좌표 — right 63 + left 63
+    각 손의 손목(lm0)을 원점으로 하는 상대좌표.
+    main.js normalize() 와 완전히 동일한 로직.
+    """
+    r = X[:, :63].reshape(-1, 21, 3)   # (N, 21, 3)
+    l = X[:, 63:].reshape(-1, 21, 3)
+
+    r_rel = r - r[:, 0:1, :]           # 오른손 손목 기준
+    l_rel = l - l[:, 0:1, :]           # 왼손 손목 기준
+
+    return np.concatenate([r_rel.reshape(-1, 63), l_rel.reshape(-1, 63)], axis=1).astype(np.float32)
+
 # ── 1. 데이터 로드 ────────────────────────────────────────
 csv_files = glob.glob(f'{DATA_DIR}/*.csv')
 if not csv_files:
@@ -38,7 +53,7 @@ df = pd.concat([pd.read_csv(f) for f in csv_files], ignore_index=True)
 print(f'데이터 로드: {len(df)}행, 파일 {len(csv_files)}개')
 print('클래스 분포:\n', df['label'].value_counts())
 
-X = df.iloc[:, :126].values.astype(np.float32)  # right(63) + left(63)
+X = normalize_landmarks(df.iloc[:, :126].values.astype(np.float32))
 y = df['label'].values
 
 # ── 2. 레이블 인코딩 ──────────────────────────────────────
@@ -48,9 +63,7 @@ print('클래스:', le.classes_)
 
 NUM_CLASSES = len(le.classes_)
 
-# 레이블 맵 저장 (웹에서 참조용)
 with open(f'{MODEL_DIR}/labels.json', 'w') as f:
-    import json
     json.dump(list(le.classes_), f, ensure_ascii=False)
 
 # ── 3. 데이터 분할 ────────────────────────────────────────
@@ -110,7 +123,6 @@ for epoch in range(1, EPOCHS + 1):
 
     scheduler.step()
 
-    # 검증
     model.eval()
     correct = total = 0
     with torch.no_grad():

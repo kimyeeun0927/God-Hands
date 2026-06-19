@@ -7,38 +7,33 @@
  *
  * CSV 포맷 (127컬럼):
  *   r0x,r0y,r0z,...,r20z, l0x,...,l20z, label
+ *   (raw MediaPipe 좌표 — 정규화 없음)
  */
 
 export class DataCollector {
   constructor(onStateChange) {
     this.rows         = [];
     this.count        = 0;
-    this._snapshots   = []; // undo용 스냅샷 스택
+    this._snapshots   = [];
     this._currentLms  = null;
     this._isRecording = false;
     this._onStateChange = onStateChange ?? (() => {});
 
-    // 녹화 설정
-    this.RECORD_DURATION_MS  = 3000;  // 녹화 시간
-    this.COUNTDOWN_SEC       = 3;     // 카운트다운
+    this.RECORD_DURATION_MS  = 3000;
+    this.COUNTDOWN_SEC       = 3;
     this._recordTimer        = null;
     this._recordInterval     = null;
   }
 
-  /** HandTracker에서 매 프레임 호출 */
-  setLandmarks(normalized) {
-    this._currentLms = normalized;
+  /** main.js 루프에서 매 프레임 호출 — raw MediaPipe 결과 전달 */
+  setLandmarks(landmarks, handedness) {
+    this._currentLms = { landmarks, handedness };
 
-    // 녹화 중이면 프레임마다 자동 저장
     if (this._isRecording && this._jutsuTarget) {
       this._captureFrame();
     }
   }
 
-  /**
-   * 버튼 클릭 시 호출
-   * → 3초 카운트다운 → 3초 녹화 → 완료
-   */
   startRecording(jutsuLabel) {
     if (!jutsuLabel || jutsuLabel === '') {
       alert('술식을 먼저 선택하세요!');
@@ -55,8 +50,6 @@ export class DataCollector {
     clearTimeout(this._recordTimer);
     this._onStateChange({ phase: 'idle', count: this.count });
   }
-
-  // ── 내부 ──────────────────────────────────────────────
 
   _startCountdown() {
     let remaining = this.COUNTDOWN_SEC;
@@ -77,12 +70,10 @@ export class DataCollector {
     this._isRecording   = true;
     this._frameCount    = 0;
     const startCount    = this.count;
-    // 녹화 시작 전 현재 상태를 스냅샷으로 저장 (undo용)
     this._snapshots.push({ rowCount: this.rows.length, count: this.count });
 
     this._onStateChange({ phase: 'recording', count: this.count });
 
-    // RECORD_DURATION_MS 후 자동 종료
     this._recordTimer = setTimeout(() => {
       this._isRecording = false;
       const captured = this.count - startCount;
@@ -91,23 +82,27 @@ export class DataCollector {
   }
 
   _captureFrame() {
-    const lms = this._currentLms;
-    if (!lms) return;
+    const { landmarks, handedness } = this._currentLms ?? {};
+    if (!landmarks?.length) return;
 
-    const { right, left } = lms;
+    const raw = {};
+    landmarks.forEach((lms, idx) => {
+      const label = handedness?.[idx]?.[0]?.categoryName;
+      const side  = label === 'Left' ? 'right' : 'left';
+      raw[side] = lms;
+    });
 
-    // 양손 다 없으면 스킵
-    if (!right && !left) return;
+    if (!raw.right && !raw.left) return;
 
-    const r = right ?? new Float32Array(63);
-    const l = left  ?? new Float32Array(63);
+    const toFlat = (lms) => lms
+      ? lms.flatMap(lm => [lm.x, lm.y, lm.z])
+      : new Array(63).fill(0);
 
-    this.rows.push([...r, ...l, this._jutsuTarget]);
+    this.rows.push([...toFlat(raw.right), ...toFlat(raw.left), this._jutsuTarget]);
     this.count++;
     this._frameCount++;
   }
 
-  /** 마지막 녹화분 취소 */
   undo() {
     if (this._snapshots.length === 0) {
       alert('되돌릴 녹화가 없습니다.');

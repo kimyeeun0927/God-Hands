@@ -105,7 +105,7 @@ async function init() {
     const normalized = normalize(landmarks, handedness);
 
     if (state.mode === 'collect') {
-      collector.setLandmarks(normalized);
+      collector.setLandmarks(landmarks, handedness);  // raw 전달 — 정규화는 train.py에서
       arFx.draw('none', landmarks?.length ? landmarks : null, video);
       return;
     }
