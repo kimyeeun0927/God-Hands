@@ -1,18 +1,27 @@
-const JUTSU_LABELS = ['none', 'boar', 'rabbit', 'rat', 'monkey', 'dog', 'snake', 'o', 'x'];
-
+// 하드코딩 배열 삭제하고, 클래스 필드로 변경
 export class GestureClassifier {
   constructor() {
     this._lastJutsu = 'none';
     this._lastSeen  = 0;
     this.HOLD_MS    = 300;
+    this.labels     = null;
+    this.hasModel   = false;
   }
 
   async loadModel() {
     try {
-      const ort = await import('https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js');
-      this.model = await ort.InferenceSession.create('/models/handseal.onnx');
+      this.ort = window.ort;
+      if (!this.ort) throw new Error('window.ort가 없음');
+
+      const [session, labelsRes] = await Promise.all([
+        this.ort.InferenceSession.create('/models/handseal.onnx'),
+        fetch('/models/labels.json'),
+      ]);
+      this.model  = session;
+      this.labels = await labelsRes.json();
       this.hasModel = true;
-    } catch {
+    } catch (e) {
+      console.error('[GestureClassifier] loadModel 실패:', e);
       this.hasModel = false;
     }
   }
@@ -33,15 +42,26 @@ export class GestureClassifier {
   }
 
   async _predictONNX(normalized) {
-    const input = new Float32Array(126);
-    if (normalized.right) input.set(normalized.right, 0);
-    if (normalized.left)  input.set(normalized.left,  63);
-    const tensor = new ort.Tensor('float32', input, [1, 126]);
-    const out    = await this.model.run({ input: tensor });
-    const probs  = out.output.data;
-    const maxIdx = probs.indexOf(Math.max(...probs));
-    return { jutsu: JUTSU_LABELS[maxIdx], confidence: Math.round(probs[maxIdx] * 100) };
-  }
+  const input = new Float32Array(130);
+  if (normalized.right) input.set(normalized.right, 0);
+  if (normalized.left)  input.set(normalized.left,  63);
+  if (normalized.interhand) input.set(normalized.interhand, 126);
+
+  const tensor = new this.ort.Tensor('float32', input, [1, 130]);
+  const out    = await this.model.run({ input: tensor });
+  const probs  = out.output.data;
+  const maxIdx = probs.indexOf(Math.max(...probs));
+
+  // [디버깅] 매 프레임 콘솔에 찍기
+  console.log(
+    '양손:', normalized.right ? 'O' : 'X', normalized.left ? 'O' : 'X',
+    '| 예측:', this.labels[maxIdx],
+    '| 확률:', this.labels.map((l,i)=>`${l}:${(probs[i]*100).toFixed(0)}`).join(' ')
+  );
+
+  return { jutsu: this.labels[maxIdx], confidence: Math.round(probs[maxIdx] * 100) };
+}
+
 
   _predictRules(normalized) {
     const r = normalized.right;

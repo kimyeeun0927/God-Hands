@@ -26,24 +26,51 @@ resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
 function normalize(landmarks, handednessList) {
-  const result = { right: null, left: null };
+  const result = { right: null, left: null, interhand: null };
   if (!landmarks) return result;
+
+  let rightLms = null, leftLms = null;
   landmarks.forEach((lms, idx) => {
     const label = handednessList?.[idx]?.[0]?.categoryName;
-    // Tasks API: 미러링 카메라 기준 Left/Right 반전 없음
     const side  = label === 'Left' ? 'right' : 'left';
-    const wrist = lms[0];
-    const arr   = new Float32Array(63);
-    lms.forEach((lm, i) => {
-      arr[i*3]   = lm.x - wrist.x;
-      arr[i*3+1] = lm.y - wrist.y;
-      arr[i*3+2] = lm.z - wrist.z;
-    });
-    result[side] = arr;
+    if (side === 'right') rightLms = lms; else leftLms = lms;
   });
+
+  const normalizeHand = (lms) => {
+    if (!lms) return { arr: null, wrist: null, scale: 0 };
+    const wrist = lms[0];
+    const midMcp = lms[9];
+    const scale = Math.hypot(midMcp.x - wrist.x, midMcp.y - wrist.y, midMcp.z - wrist.z);
+    const s = scale > 1e-6 ? scale : 1.0;
+    const arr = new Float32Array(63);
+    lms.forEach((lm, i) => {
+      arr[i*3]   = (lm.x - wrist.x) / s;
+      arr[i*3+1] = (lm.y - wrist.y) / s;
+      arr[i*3+2] = (lm.z - wrist.z) / s;
+    });
+    return { arr, wrist, scale: scale > 1e-6 ? scale : 0 };
+  };
+
+  const r = normalizeHand(rightLms);
+  const l = normalizeHand(leftLms);
+  result.right = r.arr;
+  result.left  = l.arr;
+
+  // inter-hand feature (preprocess.py의 palm_scale_normalize와 동일 공식)
+  const interhand = new Float32Array(4); // dx, dy, dz, dist
+  if (r.scale > 0 && l.scale > 0) {
+    const avgScale = (r.scale + l.scale) / 2;
+    const dx = (r.wrist.x - l.wrist.x) / avgScale;
+    const dy = (r.wrist.y - l.wrist.y) / avgScale;
+    const dz = (r.wrist.z - l.wrist.z) / avgScale;
+    interhand[0] = dx; interhand[1] = dy; interhand[2] = dz;
+    interhand[3] = Math.hypot(r.wrist.x - l.wrist.x, r.wrist.y - l.wrist.y, r.wrist.z - l.wrist.z) / avgScale;
+  }
+  // 한 손만 있으면 0,0,0,0 유지 (preprocess.py와 동일)
+  result.interhand = interhand;
+
   return result;
 }
-
 async function init() {
   ui.setStatus('loading', 'MediaPipe 로딩중...');
 

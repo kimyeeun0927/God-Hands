@@ -1,12 +1,8 @@
 """
 train.py — HANDSEAL 제스처 분류 모델 학습
 ============================================
-입력: ml/data/raw/*.csv  (dataCollector.js가 생성한 파일들)
-출력: ml/models/handseal.onnx  (웹에서 로드)
-
-실행:
-  pip install torch scikit-learn pandas numpy onnx
-  python ml/train.py
+입력: ml/data/raw/processed_train.csv, processed_val.csv (preprocess.py 결과물, 130차원)
+출력: ml/models/handseal.onnx
 """
 
 import pandas as pd
@@ -14,102 +10,84 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import classification_report, confusion_matrix
-import glob, os, json
+import os, json
 
-# ── 설정 ──────────────────────────────────────────────────
 DATA_DIR   = 'ml/data/raw'
 MODEL_DIR  = 'ml/models'
 MODEL_PATH = f'{MODEL_DIR}/handseal.onnx'
 EPOCHS     = 100
 BATCH_SIZE = 64
 LR         = 1e-3
+PATIENCE   = 15
 
 os.makedirs(MODEL_DIR, exist_ok=True)
 
-# ── 0. 정규화 (main.js normalize()와 동일 로직) ──────────
-def normalize_landmarks(X: np.ndarray) -> np.ndarray:
-    """
-    X: (N, 126) raw MediaPipe 좌표 — right 63 + left 63
-    각 손의 손목(lm0)을 원점으로 하는 상대좌표.
-    main.js normalize() 와 완전히 동일한 로직.
-    """
-    r = X[:, :63].reshape(-1, 21, 3)   # (N, 21, 3)
-    l = X[:, 63:].reshape(-1, 21, 3)
+# ── 1. 전처리된 데이터 로드 ────────────────────────────
+train_path = f'{DATA_DIR}/processed_train.csv'
+val_path   = f'{DATA_DIR}/processed_val.csv'
 
-    r_rel = r - r[:, 0:1, :]           # 오른손 손목 기준
-    l_rel = l - l[:, 0:1, :]           # 왼손 손목 기준
+if not os.path.exists(train_path) or not os.path.exists(val_path):
+    raise FileNotFoundError(f'{train_path} 또는 {val_path}가 없습니다. 먼저 preprocess.py를 실행하세요.')
 
-    return np.concatenate([r_rel.reshape(-1, 63), l_rel.reshape(-1, 63)], axis=1).astype(np.float32)
+df_train = pd.read_csv(train_path)
+df_val   = pd.read_csv(val_path)
+print(f'train: {len(df_train)}행, val: {len(df_val)}행')
+print(df_train['label'].value_counts())
 
-# ── 1. 데이터 로드 ────────────────────────────────────────
-csv_files = glob.glob(f'{DATA_DIR}/*.csv')
-if not csv_files:
-    raise FileNotFoundError(f'{DATA_DIR}에 CSV 파일이 없습니다. 먼저 데이터를 수집하세요.')
+feat_cols = [c for c in df_train.columns if c != 'label']
+X_train = df_train[feat_cols].values.astype(np.float32)
+X_test  = df_val[feat_cols].values.astype(np.float32)
+y_train_raw = df_train['label'].values
+y_test_raw  = df_val['label'].values
 
-df = pd.concat([pd.read_csv(f) for f in csv_files], ignore_index=True)
-print(f'데이터 로드: {len(df)}행, 파일 {len(csv_files)}개')
-print('클래스 분포:\n', df['label'].value_counts())
-
-X = normalize_landmarks(df.iloc[:, :126].values.astype(np.float32))
-y = df['label'].values
-
-# ── 2. 레이블 인코딩 ──────────────────────────────────────
+# ── 2. 레이블 인코딩 ──────────────────────────────────
 le = LabelEncoder()
-y_enc = le.fit_transform(y)
-print('클래스:', le.classes_)
-
+le.fit(np.concatenate([y_train_raw, y_test_raw]))
+y_train = le.transform(y_train_raw)
+y_test  = le.transform(y_test_raw)
+print('클래스:', list(le.classes_))
 NUM_CLASSES = len(le.classes_)
 
 with open(f'{MODEL_DIR}/labels.json', 'w') as f:
     json.dump(list(le.classes_), f, ensure_ascii=False)
 
-# ── 3. 데이터 분할 ────────────────────────────────────────
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y_enc, test_size=0.2, random_state=42, stratify=y_enc
-)
+# class_weight (오버샘플링 대신 불균형 보정)
+counts = np.bincount(y_train, minlength=NUM_CLASSES)
+class_weights = (counts.sum() / (NUM_CLASSES * counts)).astype(np.float32)
+print('class_weights:', dict(zip(le.classes_, np.round(class_weights, 2))))
 
+# ── 3. 데이터로더 ─────────────────────────────────────
 train_ds = TensorDataset(torch.tensor(X_train), torch.tensor(y_train, dtype=torch.long))
 test_ds  = TensorDataset(torch.tensor(X_test),  torch.tensor(y_test,  dtype=torch.long))
 train_dl = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
 test_dl  = DataLoader(test_ds,  batch_size=BATCH_SIZE)
 
-# ── 4. 모델 정의 (MLP) ────────────────────────────────────
+# ── 4. 모델 정의 (32-16, 기존 256-128-64 대비 실험으로 검증된 축소 구조) ──
 class HandSealMLP(nn.Module):
-    def __init__(self, in_dim=126, num_classes=5):
+    def __init__(self, in_dim=130, num_classes=9):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(in_dim, 256),
-            nn.BatchNorm1d(256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-
-            nn.Linear(256, 128),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-
-            nn.Linear(128, 64),
-            nn.ReLU(),
-
-            nn.Linear(64, num_classes),
+            nn.Linear(in_dim, 32), nn.BatchNorm1d(32), nn.ReLU(), nn.Dropout(0.3),
+            nn.Linear(32, 16), nn.BatchNorm1d(16), nn.ReLU(), nn.Dropout(0.2),
+            nn.Linear(16, num_classes),
         )
-
     def forward(self, x):
         return self.net(x)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f'디바이스: {device}')
 
-model     = HandSealMLP(num_classes=NUM_CLASSES).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-criterion = nn.CrossEntropyLoss()
+model = HandSealMLP(in_dim=X_train.shape[1], num_classes=NUM_CLASSES).to(device)
+optimizer = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=1e-4)
+criterion = nn.CrossEntropyLoss(weight=torch.tensor(class_weights).to(device))
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
 
-# ── 5. 학습 ───────────────────────────────────────────────
+# ── 5. 학습 (early stopping) ──────────────────────────
 best_acc = 0.0
+no_improve = 0
+
 for epoch in range(1, EPOCHS + 1):
     model.train()
     total_loss = 0
@@ -120,7 +98,6 @@ for epoch in range(1, EPOCHS + 1):
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
-
     scheduler.step()
 
     model.eval()
@@ -131,18 +108,25 @@ for epoch in range(1, EPOCHS + 1):
             preds = model(xb).argmax(1)
             correct += (preds == yb).sum().item()
             total   += len(yb)
-
     acc = correct / total * 100
+
     if acc > best_acc:
         best_acc = acc
+        no_improve = 0
         torch.save(model.state_dict(), f'{MODEL_DIR}/best.pt')
+    else:
+        no_improve += 1
 
-    if epoch % 10 == 0:
-        print(f'Epoch {epoch:3d}/{EPOCHS} | Loss: {total_loss/len(train_dl):.4f} | Val Acc: {acc:.1f}%')
+    if epoch % 5 == 0 or no_improve == 0:
+        print(f'Epoch {epoch:3d}/{EPOCHS} | Loss: {total_loss/len(train_dl):.4f} | Val Acc: {acc:.1f}% | best: {best_acc:.1f}% (no_improve={no_improve})')
+
+    if no_improve >= PATIENCE:
+        print(f'\n{PATIENCE} epoch 동안 개선 없어서 조기 종료 (epoch {epoch})')
+        break
 
 print(f'\n최고 검증 정확도: {best_acc:.1f}%')
 
-# ── 6. 최종 평가 ──────────────────────────────────────────
+# ── 6. 최종 평가 ──────────────────────────────────────
 model.load_state_dict(torch.load(f'{MODEL_DIR}/best.pt'))
 model.eval()
 
@@ -156,15 +140,20 @@ with torch.no_grad():
 print('\n=== Classification Report ===')
 print(classification_report(all_true, all_preds, target_names=le.classes_))
 
-# ── 7. ONNX Export ────────────────────────────────────────
+cm = confusion_matrix(all_true, all_preds)
+print('\n=== Confusion Matrix ===')
+print(pd.DataFrame(cm, index=le.classes_, columns=le.classes_))
+
+# ── 7. ONNX Export ────────────────────────────────────
 model.cpu()
-dummy_input = torch.zeros(1, 126)
+dummy_input = torch.zeros(1, X_train.shape[1])
 torch.onnx.export(
     model, dummy_input, MODEL_PATH,
     input_names=['input'],
     output_names=['output'],
     dynamic_axes={'input': {0: 'batch'}, 'output': {0: 'batch'}},
     opset_version=17,
+    dynamo=False,
 )
 print(f'\nONNX 모델 저장: {MODEL_PATH}')
 print('→ web/public/models/handseal.onnx 로 복사하면 웹에서 바로 사용 가능')
