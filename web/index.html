@@ -74,6 +74,43 @@
 
   <div id="fps-counter">-- FPS</div>
 
+  <!-- 타이머 HUD -->
+  <div id="timer-hud">
+    <div class="timer-widget">
+      <img id="timer-img" src="assets/ui/timer.png" />
+      <div id="timer-value">00</div>
+    </div>
+  </div>
+
+  <!-- 픽셀 아트 SCORE HUD -->
+  <div id="score-hud">
+    <div id="score-label-row">
+      <span class="score-diamond">✦</span>
+      <span id="score-label-text">SCORE</span>
+      <span class="score-diamond">✦</span>
+    </div>
+    <div id="score-value">000000</div>
+  </div>
+
+  <!-- 손 인식 실시간 HUD -->
+  <div id="hand-hud">
+    <div class="hud-section">
+      <span class="hud-label">손 인식 상태</span>
+      <span id="hud-status-badge" class="hud-badge hud-none">손 없음</span>
+    </div>
+    <div class="hud-divider"></div>
+    <div class="hud-section">
+      <span class="hud-label">정확도</span>
+      <div class="hud-bar-wrap"><div id="hud-bar" class="hud-bar"></div></div>
+      <span id="hud-pct">0%</span>
+    </div>
+    <div class="hud-divider"></div>
+    <div class="hud-section">
+      <span class="hud-label">현재 동작</span>
+      <span id="hud-gesture-name">—</span>
+    </div>
+  </div>
+
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

@@ -152,6 +152,11 @@ async function init() {
       handState.confidence = confidence;
     }
 
+    updateTimerHUD(dt);
+    const hideScore = scenes.hideScoreHUD;
+    _scoreEl.parentElement.style.display = hideScore ? 'none' : '';
+    if (!hideScore) updateScoreHUD(scenes.score);
+    updateHandHUD(handState);
     scenes.update(dt, handState);
     scenes.render(handState);
   }
@@ -231,6 +236,75 @@ function onCollectorState({ phase, remaining, captured, count }) {
   } else {
     overlay.classList.remove('visible'); recInd.classList.remove('visible');
   }
+}
+
+// ── 게임 타이머 HUD ───────────────────────────────────────────
+const _timerEl  = document.getElementById('timer-value');
+let _timerMs    = 0;
+let _timerSec   = -1;
+
+function updateTimerHUD(dt) {
+  _timerMs += dt;
+  const secs = Math.floor(_timerMs / 1000);
+  if (secs !== _timerSec) {
+    _timerSec = secs;
+    _timerEl.textContent = String(secs).padStart(2, '0');
+  }
+}
+
+// ── SCORE HUD (픽셀 카운트업 애니메이션) ─────────────────────
+const _scoreEl   = document.getElementById('score-value');
+let _dispScore   = 0;
+let _prevScore   = 0;
+
+function updateScoreHUD(targetScore) {
+  if (targetScore !== _prevScore) _prevScore = targetScore;
+  if (_dispScore < targetScore) {
+    const step   = Math.max(10, Math.ceil((targetScore - _dispScore) / 12));
+    _dispScore   = Math.min(targetScore, _dispScore + step);
+  } else if (_dispScore > targetScore) {
+    _dispScore = targetScore;
+  }
+  _scoreEl.textContent = String(_dispScore).padStart(6, '0');
+}
+
+// ── 손 인식 HUD 업데이트 ─────────────────────────────────────
+const GESTURE_KO = { none: '—', boar: '돼지 (亥)', rabbit: '토끼 (卯)', rat: '쥐 (子)' };
+const _hudBadge  = document.getElementById('hud-status-badge');
+const _hudBar    = document.getElementById('hud-bar');
+const _hudPct    = document.getElementById('hud-pct');
+const _hudGesture = document.getElementById('hud-gesture-name');
+
+function updateHandHUD(handState) {
+  const conf = handState.confidence ?? 0;
+  const hasHand = handState.landmarks?.length > 0;
+
+  if (!hasHand) {
+    _hudBadge.textContent  = '손 없음';
+    _hudBadge.className    = 'hud-badge hud-none';
+    _hudBar.style.width    = '0%';
+    _hudBar.style.background = 'rgba(255,255,255,0.1)';
+    _hudPct.textContent    = '0%';
+    _hudGesture.textContent = '—';
+    return;
+  }
+
+  if (conf >= 70) {
+    _hudBadge.textContent = 'GOOD';
+    _hudBadge.className   = 'hud-badge hud-good';
+    _hudBar.style.background = '#10b981';
+  } else if (conf >= 40) {
+    _hudBadge.textContent = '인식 중';
+    _hudBadge.className   = 'hud-badge hud-mid';
+    _hudBar.style.background = '#f6e05e';
+  } else {
+    _hudBadge.textContent = '낮음';
+    _hudBadge.className   = 'hud-badge hud-low';
+    _hudBar.style.background = '#fc8181';
+  }
+  _hudBar.style.width    = `${Math.min(100, conf)}%`;
+  _hudPct.textContent    = `${Math.round(conf)}%`;
+  _hudGesture.textContent = GESTURE_KO[handState.gesture] ?? handState.gesture;
 }
 
 init().catch(err => {

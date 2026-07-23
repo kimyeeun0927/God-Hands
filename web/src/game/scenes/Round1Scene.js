@@ -1,7 +1,14 @@
-const TARGET = { jutsu: 'rabbit', char: '卯', name: '토끼', hint: '오른손 검지 ↑   왼손 새끼손가락 ↑' };
+import { Round1ResultScene } from './Round1ResultScene.js';
 
-const HOLD_MS    = 1200;
-const SUCCESS_MS = 2200;
+const QUESTIONS = [
+  { text: '첫번째 문제' },
+  { text: '두번째 문제' },
+  { text: '세번째 문제' },
+];
+
+const POINTS_PER_Q    = 100;
+const FEEDBACK_MS     = 1200;
+const ADVANCE_COOLDOWN = 700;
 
 const HAND_CONNECTIONS = [
   [0,1],[1,2],[2,3],[3,4],
@@ -14,44 +21,81 @@ const HAND_CONNECTIONS = [
 
 export class Round1Scene {
   constructor(manager) {
-    this.manager    = manager;
-    this.canvas     = manager.canvas;
-    this.ctx        = manager.ctx;
-    this.video      = manager.video;
-    this.phase      = 'challenge';
-    this._holdMs    = 0;
-    this._successMs = 0;
-    this._frame     = 0;
-    this._particles = [];
-    this._gone      = false;
+    this.manager = manager;
+    this.canvas  = manager.canvas;
+    this.ctx     = manager.ctx;
+    this.video   = manager.video;
+
+    this._qIndex          = 0;
+    this._phase           = 'question'; // 'question' | 'feedback' | 'complete'
+    this._feedbackMs      = 0;
+    this._completeMs      = 0;
+    this._fistHeld        = false;
+    this._advanceCooldown = ADVANCE_COOLDOWN; // 첫 문제 직후 실수 방지
+
+    this._assets = {};
   }
 
-  update(dt, handState) {
-    this._frame++;
+  init() {
+    this._tryLoad('sign_o', 'assets/handsigns/sign_o.png');
+    this._tryLoad('sign_x', 'assets/handsigns/sign_x.png');
+  }
 
-    if (this.phase === 'challenge') {
-      if (handState.gesture === TARGET.jutsu) {
-        this._holdMs += dt;
-        if (this._holdMs >= HOLD_MS) {
-          this.phase   = 'success';
-          this._holdMs = HOLD_MS;
-        }
-      } else {
-        this._holdMs = Math.max(0, this._holdMs - dt * 1.5);
+  _tryLoad(key, src) {
+    const img = new Image();
+    img.onload  = () => { this._assets[key] = img; };
+    img.onerror = () => {};
+    img.src = src;
+  }
+
+  // ── 주먹 판정 ────────────────────────────────────────────────
+  _isFist(handState) {
+    const lms = handState.landmarks;
+    if (!lms?.length) return false;
+    const tips = [8, 12, 16, 20];
+    const pips = [6, 10, 14, 18];
+    return lms.some(hand => tips.every((t, i) => hand[t].y > hand[pips[i]].y));
+  }
+
+  // ── Update ───────────────────────────────────────────────────
+  update(dt, handState) {
+    this._advanceCooldown = Math.max(0, this._advanceCooldown - dt);
+
+    if (this._phase === 'question') {
+      if (this._advanceCooldown > 0) { this._fistHeld = false; return; }
+
+      const fist = this._isFist(handState);
+      if (fist && !this._fistHeld) {
+        this._fistHeld = true;
+      } else if (!fist && this._fistHeld) {
+        this._fistHeld        = false;
+        this._advanceCooldown = ADVANCE_COOLDOWN;
+        this.manager.score   += POINTS_PER_Q;
+        this._phase           = 'feedback';
+        this._feedbackMs      = 0;
       }
-    } else if (this.phase === 'success') {
-      this._successMs += dt;
-      this._emitParticles();
-      if (this._successMs >= SUCCESS_MS && !this._gone) {
-        this._gone = true;
-        // TODO: this.manager.goto(Round2Scene);
-        console.log('[Round1] CLEAR → Round 2 (미구현)');
+
+    } else if (this._phase === 'feedback') {
+      this._feedbackMs += dt;
+      if (this._feedbackMs >= FEEDBACK_MS) {
+        this._qIndex++;
+        if (this._qIndex >= QUESTIONS.length) {
+          this._phase = 'complete';
+        } else {
+          this._phase           = 'question';
+          this._advanceCooldown = ADVANCE_COOLDOWN;
+        }
+      }
+
+    } else if (this._phase === 'complete') {
+      this._completeMs += dt;
+      if (this._completeMs >= 3000) {
+        this.manager.goto(Round1ResultScene);
       }
     }
-
-    this._tickParticles();
   }
 
+  // ── Render ───────────────────────────────────────────────────
   render(handState) {
     const { canvas, ctx } = this;
     const W = canvas.width, H = canvas.height;
@@ -60,23 +104,22 @@ export class Round1Scene {
     ctx.fillStyle = 'rgba(0,0,0,0.52)';
     ctx.fillRect(0, 0, W, H);
 
-    if (this.phase === 'challenge') {
-      this._renderChallenge(W, H);
+    this._renderRoundLabel(W, H);
+
+    if (this._phase === 'question') {
+      this._renderQuestion(W, H, handState);
+    } else if (this._phase === 'feedback') {
+      this._renderFeedback(W, H);
     } else {
-      this._renderSuccess(W, H);
+      this._renderComplete(W, H);
     }
 
     this._renderHands(handState, W, H);
-    this._renderParticles();
   }
 
-  // ── Challenge ──────────────────────────────────────────────
-
-  _renderChallenge(W, H) {
-    const ctx  = this.ctx;
-    const prog = this._holdMs / HOLD_MS;
-
-    // ROUND 1 라벨
+  // ── Round 라벨 ───────────────────────────────────────────────
+  _renderRoundLabel(W, H) {
+    const ctx = this.ctx;
     ctx.save();
     ctx.font         = `bold ${Math.floor(H * 0.025)}px 'Press Start 2P', monospace`;
     ctx.fillStyle    = '#FFB800';
@@ -86,124 +129,169 @@ export class Round1Scene {
     ctx.shadowBlur   = 20;
     ctx.fillText('ROUND 1', W / 2, H * 0.06);
     ctx.restore();
+  }
 
-    // 대형 인장 한자
+  // ── 문제 화면 ────────────────────────────────────────────────
+  _renderQuestion(W, H, handState) {
+    const ctx = this.ctx;
+    const q   = QUESTIONS[this._qIndex];
+
+    // 문제 번호
     ctx.save();
-    ctx.font         = `${Math.floor(H * 0.22)}px serif`;
-    ctx.fillStyle    = prog > 0
-      ? `rgba(255,184,0,${0.7 + 0.3 * prog})`
-      : 'rgba(255,255,255,0.88)';
+    ctx.font         = `${Math.floor(H * 0.02)}px 'JetBrains Mono', monospace`;
+    ctx.fillStyle    = 'rgba(255,255,255,0.5)';
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
-    ctx.shadowColor  = prog > 0 ? '#FFB800' : 'rgba(255,255,255,0.2)';
-    ctx.shadowBlur   = prog > 0 ? 50 * prog : 8;
-    ctx.fillText(TARGET.char, W / 2, H * 0.37);
+    ctx.fillText(`문제 ${this._qIndex + 1} / ${QUESTIONS.length}`, W / 2, H * 0.22);
     ctx.restore();
 
-    // 인장 이름
-    ctx.save();
-    ctx.font         = `bold ${Math.floor(H * 0.028)}px 'Press Start 2P', monospace`;
-    ctx.fillStyle    = 'rgba(255,255,255,0.92)';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText(TARGET.name + ' 인장', W / 2, H * 0.545);
-    ctx.restore();
-
-    // 힌트 텍스트
-    ctx.save();
-    ctx.font         = `${Math.floor(H * 0.019)}px 'JetBrains Mono', monospace`;
-    ctx.fillStyle    = 'rgba(255,255,255,0.45)';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText(TARGET.hint, W / 2, H * 0.625);
-    ctx.restore();
-
-    // 진행 링
-    const cx = W / 2, cy = H * 0.785;
-    const R  = Math.min(W, H) * 0.068;
+    // 문제 박스
+    const bw = W * 0.68, bh = H * 0.18;
+    const bx = W / 2 - bw / 2, by = H * 0.3;
 
     ctx.save();
-    // 트랙
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.lineWidth   = 7;
-    ctx.stroke();
+    ctx.fillStyle   = 'rgba(245,230,195,0.93)';
+    ctx.strokeStyle = '#8B6914';
+    ctx.lineWidth   = 3;
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur  = 20;
+    this._rrect(ctx, bx, by, bw, bh, 14);
+    ctx.fill(); ctx.stroke();
 
-    // 채움
-    if (prog > 0) {
-      ctx.beginPath();
-      ctx.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * prog);
-      ctx.strokeStyle = '#FFB800';
-      ctx.lineWidth   = 7;
-      ctx.lineCap     = 'round';
-      ctx.shadowColor = '#FFB800';
-      ctx.shadowBlur  = 18;
-      ctx.stroke();
-    }
-
-    // 중앙 텍스트
-    ctx.font         = `${Math.floor(H * 0.02)}px 'JetBrains Mono', monospace`;
-    ctx.fillStyle    = prog > 0 ? '#FFB800' : 'rgba(255,255,255,0.4)';
+    ctx.fillStyle    = '#2C1A00';
+    ctx.font         = `bold ${Math.floor(H * 0.042)}px sans-serif`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.shadowBlur   = 0;
-    ctx.fillText(prog > 0 ? `${Math.round(prog * 100)}%` : '✦', cx, cy);
+    ctx.fillText(q.text, W / 2, by + bh / 2);
     ctx.restore();
 
-    // 안내 문구
+    // O / X 안내 (왼쪽 O, 오른쪽 X)
+    this._renderOXHint(W, bx, by, bw, bh);
+
+    // 주먹 안내
+    const isFist = this._isFist(handState);
+    const pulse  = 0.5 + 0.5 * Math.sin(performance.now() * 0.003);
+
     ctx.save();
-    ctx.font         = `${Math.floor(H * 0.016)}px 'JetBrains Mono', monospace`;
-    ctx.fillStyle    = 'rgba(255,255,255,0.35)';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText('인장을 유지하세요', W / 2, cy + R + 14);
+    if (isFist) {
+      ctx.fillStyle   = '#FFB800';
+      ctx.shadowColor = '#FFB800';
+      ctx.shadowBlur  = 14;
+      ctx.font        = `bold ${Math.floor(H * 0.022)}px sans-serif`;
+      ctx.textAlign   = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText('✊ 감지됨 — 손을 펴서 정답 제출', W / 2, by + bh + 24);
+    } else {
+      ctx.globalAlpha  = 0.5 + 0.5 * pulse;
+      ctx.fillStyle    = 'rgba(255,255,255,0.7)';
+      ctx.font         = `${Math.floor(H * 0.02)}px sans-serif`;
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText('주먹을 쥐었다 펴서 정답 제출 ▶', W / 2, by + bh + 24);
+    }
     ctx.restore();
   }
 
-  // ── Success ────────────────────────────────────────────────
+  // ── O(왼쪽) / X(오른쪽) 안내 ──────────────────────────────────
+  _renderOXHint(W, bx, by, bw, bh) {
+    const ctx  = this.ctx;
+    const size = bh * 0.8;
+    const gap  = W * 0.03;
+    const cy   = by + bh / 2;
 
-  _renderSuccess(W, H) {
+    const drawSide = (img, glyph, color, x) => {
+      ctx.save();
+      if (img) {
+        ctx.drawImage(img, x, cy - size / 2, size, size);
+      } else {
+        ctx.strokeStyle = color;
+        ctx.lineWidth   = 5;
+        ctx.shadowColor = color;
+        ctx.shadowBlur  = 10;
+        if (glyph === 'O') {
+          ctx.beginPath();
+          ctx.arc(x + size / 2, cy, size * 0.42, 0, Math.PI * 2);
+          ctx.stroke();
+        } else {
+          ctx.lineCap = 'round';
+          const r = size * 0.38;
+          ctx.beginPath();
+          ctx.moveTo(x + size / 2 - r, cy - r); ctx.lineTo(x + size / 2 + r, cy + r);
+          ctx.moveTo(x + size / 2 + r, cy - r); ctx.lineTo(x + size / 2 - r, cy + r);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    };
+
+    drawSide(this._assets.sign_o, 'O', '#7BB8FF', bx - gap - size);
+    drawSide(this._assets.sign_x, 'X', '#FF9B7B', bx + bw + gap);
+  }
+
+  // ── 피드백 화면 ──────────────────────────────────────────────
+  _renderFeedback(W, H) {
     const ctx = this.ctx;
-    const t   = Math.min(1, this._successMs / SUCCESS_MS);
+    const t   = Math.min(1, this._feedbackMs / FEEDBACK_MS);
 
-    // 초기 플래시
-    const flash = Math.max(0, 0.35 - t * 0.45);
-    if (flash > 0) {
-      ctx.fillStyle = `rgba(255,184,0,${flash})`;
-      ctx.fillRect(0, 0, W, H);
-    }
-
-    // CLEAR 텍스트
+    // 정답! 텍스트 (팝인)
+    const scale = 0.75 + 0.25 * Math.min(1, t * 6);
     ctx.save();
-    const pop = Math.min(1, t * 4);
-    ctx.translate(W / 2, H / 2);
-    ctx.scale(0.7 + 0.3 * pop, 0.7 + 0.3 * pop);
-    ctx.globalAlpha  = pop;
-    ctx.font         = `bold ${Math.floor(H * 0.1)}px 'Press Start 2P', monospace`;
+    ctx.translate(W / 2, H * 0.42);
+    ctx.scale(scale, scale);
+    ctx.font         = `bold ${Math.floor(H * 0.09)}px 'Press Start 2P', monospace`;
+    ctx.fillStyle    = '#4ADE80';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor  = '#22C55E';
+    ctx.shadowBlur   = 50;
+    ctx.fillText('정답!', 0, 0);
+    ctx.restore();
+
+    // +100 점수 상승 텍스트
+    const rise = t * H * 0.14;
+    ctx.save();
+    ctx.globalAlpha  = Math.max(0, 1 - t * 1.1);
+    ctx.font         = `bold ${Math.floor(H * 0.04)}px 'Press Start 2P', monospace`;
     ctx.fillStyle    = '#FFB800';
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.shadowColor  = '#FF8C00';
-    ctx.shadowBlur   = 60;
-    ctx.fillText('CLEAR!', 0, 0);
+    ctx.shadowBlur   = 20;
+    ctx.fillText(`+${POINTS_PER_Q}`, W / 2, H * 0.62 - rise);
     ctx.restore();
-
-    // 서브 텍스트
-    if (t > 0.4) {
-      ctx.save();
-      ctx.globalAlpha  = Math.min(1, (t - 0.4) * 2.5);
-      ctx.font         = `${Math.floor(H * 0.022)}px 'JetBrains Mono', monospace`;
-      ctx.fillStyle    = 'rgba(255,255,255,0.7)';
-      ctx.textAlign    = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillText('토끼 인장 습득!', W / 2, H * 0.6);
-      ctx.restore();
-    }
   }
 
-  // ── 손 랜드마크 ────────────────────────────────────────────
+  // ── 완료 화면 ────────────────────────────────────────────────
+  _renderComplete(W, H) {
+    const ctx = this.ctx;
 
+    ctx.save();
+    ctx.font         = `bold ${Math.floor(H * 0.06)}px 'Press Start 2P', monospace`;
+    ctx.fillStyle    = '#FFB800';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor  = '#FF8C00';
+    ctx.shadowBlur   = 40;
+    ctx.fillText('ROUND 1 CLEAR!', W / 2, H * 0.38);
+    ctx.restore();
+
+    ctx.save();
+    ctx.font         = `${Math.floor(H * 0.028)}px 'JetBrains Mono', monospace`;
+    ctx.fillStyle    = 'rgba(255,255,255,0.65)';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`Round 1 점수: ${QUESTIONS.length * POINTS_PER_Q}점`, W / 2, H * 0.5);
+
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.003);
+    ctx.globalAlpha = 0.5 + 0.5 * pulse;
+    ctx.font        = `${Math.floor(H * 0.02)}px sans-serif`;
+    ctx.fillStyle   = 'rgba(255,255,255,0.6)';
+    ctx.fillText('Round 2 준비중...', W / 2, H * 0.6);
+    ctx.restore();
+  }
+
+  // ── 손 랜드마크 ──────────────────────────────────────────────
   _renderHands(handState, W, H) {
     const lms = handState.landmarks;
     if (!lms?.length || !this.video.videoWidth) return;
@@ -217,7 +305,7 @@ export class Round1Scene {
 
     lms.forEach(hand => {
       ctx.save();
-      ctx.strokeStyle = 'rgba(139,92,246,0.7)';
+      ctx.strokeStyle = 'rgba(255,184,0,0.75)';
       ctx.lineWidth   = 2;
       HAND_CONNECTIONS.forEach(([a, b]) => {
         ctx.beginPath();
@@ -228,7 +316,7 @@ export class Round1Scene {
       hand.forEach((lm, i) => {
         ctx.beginPath();
         ctx.arc(lx(lm), ly(lm), i === 0 ? 6 : 4, 0, Math.PI * 2);
-        ctx.fillStyle   = i === 0 ? '#f59e0b' : 'rgba(139,92,246,0.9)';
+        ctx.fillStyle   = i === 0 ? '#FFB800' : 'rgba(255,184,0,0.85)';
         ctx.strokeStyle = '#fff';
         ctx.lineWidth   = 1;
         ctx.fill(); ctx.stroke();
@@ -237,48 +325,18 @@ export class Round1Scene {
     });
   }
 
-  // ── 파티클 ────────────────────────────────────────────────
-
-  _emitParticles() {
-    if (this._frame % 2 !== 0) return;
-    const W = this.canvas.width, H = this.canvas.height;
-    for (let i = 0; i < 4; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const r = Math.random() * Math.min(W, H) * 0.28;
-      this._particles.push({
-        x: W / 2 + Math.cos(a) * r,
-        y: H / 2 + Math.sin(a) * r,
-        vx: (Math.random() - 0.5) * 7,
-        vy: -(2 + Math.random() * 5),
-        size: 3 + Math.random() * 5,
-        life: 1,
-        decay: 0.022 + Math.random() * 0.018,
-        color: Math.random() > 0.4 ? '255,184,0' : '255,255,255',
-      });
-    }
-  }
-
-  _tickParticles() {
-    this._particles = this._particles.filter(p => p.life > 0);
-    this._particles.forEach(p => {
-      p.x += p.vx; p.y += p.vy;
-      p.vy += 0.12;
-      p.life -= p.decay;
-    });
-  }
-
-  _renderParticles() {
-    const ctx = this.ctx;
-    this._particles.forEach(p => {
-      ctx.save();
-      ctx.globalAlpha = p.life;
-      ctx.fillStyle   = `rgba(${p.color},1)`;
-      ctx.shadowColor = `rgba(${p.color},0.8)`;
-      ctx.shadowBlur  = 8;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    });
+  // ── roundRect 폴리필 ─────────────────────────────────────────
+  _rrect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
   }
 }
