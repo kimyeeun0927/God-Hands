@@ -1,12 +1,19 @@
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;700&family=Syne:wght@800&display=swap');
+@font-face {
+  font-family: 'Mulmaru';
+  src: url('../../assets/fonts/Mulmaru.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+html { background: #000; }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --accent: #FFB800; --accent2: #FF6B00;
   --bg: #050302;
   --panel: rgba(15,8,3,0.88); --border: rgba(180,130,30,0.38);
   --parchment: #F5E6C3;
-  --mono: 'JetBrains Mono', monospace; --sans: 'Syne', sans-serif;
-  --pixel: 'Press Start 2P', monospace;
+  --mono: 'Mulmaru', sans-serif; --sans: 'Mulmaru', sans-serif;
+  --pixel: 'Mulmaru', sans-serif;
 }
 
 /* ── 전체화면 웹캠 ── */
@@ -149,22 +156,12 @@ body { background: #000; color: #F5E6C3; font-family: var(--mono); overflow: hid
   text-align: center;
   pointer-events: none; user-select: none;
 }
-#score-label-row {
-  display: flex; align-items: center; justify-content: center; gap: 12px;
-  margin-bottom: 6px;
-}
-.score-diamond {
-  font-size: 16px; color: #FFD23F;
-  text-shadow: 1px 1px 0 #7A3B00, -1px 1px 0 #7A3B00,
-               1px -1px 0 #7A3B00, -1px -1px 0 #7A3B00;
-}
-#score-label-text {
-  font-family: var(--pixel); font-size: 20px; letter-spacing: 5px;
-  color: #FFD23F;
-  text-shadow:
-    2px 0 0 #7A3B00, -2px 0 0 #7A3B00, 0 2px 0 #7A3B00, 0 -2px 0 #7A3B00,
-    2px 2px 0 #7A3B00, -2px 2px 0 #7A3B00, 2px -2px 0 #7A3B00, -2px -2px 0 #7A3B00,
-    3px 3px 0 #3A1800;
+#score-label-img {
+  display: block;
+  height: 28px;
+  width: auto;
+  margin: 0 auto 6px;
+  image-rendering: pixelated;
 }
 #score-value {
   font-family: var(--pixel); font-size: 36px; letter-spacing: 6px;

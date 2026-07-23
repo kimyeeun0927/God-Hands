@@ -17,6 +17,20 @@ export class GestureClassifier {
     }
   }
 
+  // 게임 루프 전용 동기 경로 (모델 없을 때 — 항상 이 경로 사용)
+  predictSync(normalized) {
+    const result = this._predictRules(normalized);
+    if (result.jutsu !== 'none') {
+      this._lastJutsu = result.jutsu;
+      this._lastSeen  = Date.now();
+      return result;
+    }
+    if (Date.now() - this._lastSeen < this.HOLD_MS) {
+      return { jutsu: this._lastJutsu, confidence: 50 };
+    }
+    return result;
+  }
+
   async predict(normalized) {
     const result = this.hasModel
       ? await this._predictONNX(normalized)

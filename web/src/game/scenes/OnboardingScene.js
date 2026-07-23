@@ -13,18 +13,23 @@ const PAGES = [
   },
   {
     lines: [
-      '총 3라운드가 있으며, 최종 점수에 따라 급수가 결정된다.',
-      '중간에 점수가 너무 낮으면 실격이니 주의해라!',
+      '닌자 시험을 시작하기 전,',
+      '준비가 됐는지 확인하겠다.',
+      '두 손을 펼쳐라!',
     ],
+    handCheck: true, // 인식률 80% 이상이면 자동 진행
   },
   {
     lines: [
-      '첫 번째 라운드는 O/X 퀴즈다!',
+      '정상 작동하는군.',
+      '첫번째 시험은 O/X 퀴즈다!',
       '문제를 읽고 손으로 정답을 표시하면 된다.',
     ],
     showOX: true,
   },
 ];
+
+const REC_WIN = 40; // 롤링 윈도우 (프레임 수)
 
 const HAND_CONNECTIONS = [
   [0,1],[1,2],[2,3],[3,4],
@@ -42,19 +47,26 @@ export class OnboardingScene {
     this.ctx      = manager.ctx;
     this.video    = manager.video;
 
-    this.phase           = 'title';
-    this._hoverMs        = 0;
+    this.phase            = 'title';
+    this._hoverMs         = 0;
 
     // 대화
-    this._page           = 0;
-    this._fistHeld       = false;
+    this._page            = 0;
+    this._fistHeld        = false;
     this._advanceCooldown = 0;
+
+    // 손 인식률 체크 (handCheck 페이지)
+    this._recBuf  = new Array(REC_WIN).fill(false);
+    this._recIdx  = 0;
+    this._recRate = 0;
 
     this._assets = {};
   }
 
+  get hideScoreHUD() { return true; }
+
   init() {
-    this._tryLoad('kakashi',     'assets/characters/kakashi.png');
+    this._tryLoad('kakashi',     'assets/characters/char.png');
     this._tryLoad('sign_o',      'assets/handsigns/sign_o.png');
     this._tryLoad('sign_x',      'assets/handsigns/sign_x.png');
     this._tryLoad('press_start', 'assets/ui/press_start.png');
@@ -66,6 +78,7 @@ export class OnboardingScene {
     img.onload  = () => { this._assets[key] = img; };
     img.onerror = () => {};
     img.src = src;
+    if (img.complete && img.naturalWidth > 0) this._assets[key] = img;
   }
 
   // ── 주먹 판정: 어느 한 손이라도 손가락 4개 모두 접혀있으면 ──
@@ -114,12 +127,30 @@ export class OnboardingScene {
       return;
     }
 
+    const page = PAGES[this._page];
+
+    // handCheck 페이지: 양손 인식률 80% 이상이면 자동 진행
+    if (page.handCheck) {
+      const bothHands = (handState.landmarks?.length ?? 0) >= 2;
+      this._recBuf[this._recIdx % REC_WIN] = bothHands;
+      this._recIdx++;
+      this._recRate = Math.round(this._recBuf.filter(Boolean).length / REC_WIN * 100);
+
+      if (this._recRate >= 80) {
+        this._recBuf.fill(false);
+        this._recIdx  = 0;
+        this._advanceCooldown = ADVANCE_COOLDOWN;
+        this._page++;
+      }
+      return;
+    }
+
     const fist = this._isFist(handState);
 
     if (fist && !this._fistHeld) {
-      this._fistHeld = true;                  // 주먹 쥠
+      this._fistHeld = true;
     } else if (!fist && this._fistHeld) {
-      this._fistHeld        = false;           // 주먹 폄 → 페이지 전환
+      this._fistHeld        = false;
       this._advanceCooldown = ADVANCE_COOLDOWN;
 
       if (this._page < PAGES.length - 1) {
@@ -160,16 +191,12 @@ export class OnboardingScene {
     ctx.save();
     const gamename = this._assets.gamename;
     if (gamename) {
-      const h = H * 0.14;
+      const h = H * 0.42;
       const w = h * (gamename.width / gamename.height);
-      ctx.shadowColor = '#FF8C00';
-      ctx.shadowBlur  = 40;
-      ctx.drawImage(gamename, W / 2 - w / 2, H * 0.38 - h / 2, w, h);
+      ctx.drawImage(gamename, W / 2 - w / 2, H * 0.32 - h / 2, w, h);
     } else {
-      ctx.shadowColor  = '#FF8C00';
-      ctx.shadowBlur   = 40;
       ctx.fillStyle    = '#FFB800';
-      ctx.font         = `bold ${Math.floor(H * 0.1)}px 'Press Start 2P', monospace`;
+      ctx.font         = `bold ${Math.floor(H * 0.1)}px 'Mulmaru', sans-serif`;
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('HANDSEAL', W / 2, H * 0.38);
@@ -180,10 +207,7 @@ export class OnboardingScene {
     const hoverBox   = this._hoverRect();
 
     if (pressStart) {
-      // 이미지만 표시 (배경 박스 없음, 4배 크기), 호버 진행도는 이미지 아래 얇은 바로 표시
       ctx.save();
-      ctx.shadowColor = '#FFB800';
-      ctx.shadowBlur  = 10 + 14 * prog;
       ctx.drawImage(pressStart, hoverBox.x, hoverBox.y, hoverBox.w, hoverBox.h);
       ctx.restore();
 
@@ -222,7 +246,7 @@ export class OnboardingScene {
       // 버튼 텍스트
       ctx.save();
       ctx.fillStyle    = '#fff';
-      ctx.font         = `bold ${Math.floor(H * 0.026)}px 'Press Start 2P', monospace`;
+      ctx.font         = `bold ${Math.floor(H * 0.026)}px 'Mulmaru', sans-serif`;
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('✦ 닌자 도전하기 ✦', W / 2, btn.y + btn.h / 2);
@@ -237,8 +261,6 @@ export class OnboardingScene {
       ctx.arc(palm.x, palm.y, 22, 0, Math.PI * 2);
       ctx.strokeStyle = `rgba(255,184,0,${0.4 + 0.6 * prog})`;
       ctx.lineWidth   = 3;
-      ctx.shadowColor = '#FFB800';
-      ctx.shadowBlur  = 16;
       ctx.stroke();
       ctx.restore();
     }
@@ -246,10 +268,10 @@ export class OnboardingScene {
     // 안내
     ctx.save();
     ctx.fillStyle    = 'rgba(255,255,255,0.55)';
-    ctx.font         = `${Math.floor(H * 0.018)}px 'JetBrains Mono', monospace`;
+    ctx.font         = `${Math.floor(H * 0.018)}px 'Mulmaru', sans-serif`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText('손을 버튼 위에 올려주세요', W / 2, hoverBox.y + hoverBox.h + 22);
+    ctx.fillText('PRESS START', W / 2, hoverBox.y + hoverBox.h + 22);
     ctx.restore();
   }
 
@@ -262,12 +284,12 @@ export class OnboardingScene {
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
     ctx.fillRect(0, 0, W, H);
 
-    // ── 캐릭터 초상화 (2배 크기) ──
-    let pw = Math.min(H * 0.55, W * 0.28) * 2;
+    // ── 캐릭터 — 0.75배, 왼쪽 하단으로 ──
+    let pw = Math.min(H * 0.55, W * 0.28) * 1.5;
     let ph = pw * 1.4;
     if (ph > H * 0.95) { ph = H * 0.95; pw = ph / 1.4; }
-    const px = W * 0.06;
-    const py = H * 0.5 - ph / 2;
+    const px = W * 0.02;
+    const py = H * 0.56 - ph / 2;
 
     if (this._assets.kakashi) {
       const img = this._assets.kakashi;
@@ -277,33 +299,38 @@ export class OnboardingScene {
       if (imgRatio > boxRatio) { dw = pw; dh = pw / imgRatio; }
       else                     { dh = ph; dw = ph * imgRatio; }
       ctx.drawImage(img, px + (pw - dw) / 2, py + (ph - dh) / 2, dw, dh);
-    } else {
-      ctx.save();
-      ctx.fillStyle   = 'rgba(80,80,80,0.4)';
-      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-      ctx.lineWidth   = 1;
-      this._rrect(ctx, px, py, pw, ph, 8);
-      ctx.fill(); ctx.stroke();
-      ctx.fillStyle    = 'rgba(255,255,255,0.18)';
-      ctx.font         = `13px monospace`;
-      ctx.textAlign    = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('캐릭터', px + pw / 2, py + ph / 2);
-      ctx.restore();
     }
 
-    // ── 다이얼로그 박스 ──
-    const bx = W * 0.06, by = H * 0.72;
-    const bw = W * 0.88, bh = H * 0.23;
+    // ── 말풍선 — 화면 하단 오른쪽 ──
+    const bx = W * 0.40, by = H * 0.52;
+    const bw = W * 0.54, bh = H * 0.44;
+    const br = 14;
+    const tTopY = by + bh * 0.18;
+    const tBotY = by + bh * 0.34;
+    const tTipX = bx - W * 0.09;
+    const tTipY = by + bh * 0.26;
 
     ctx.save();
     ctx.fillStyle   = '#F5E6C3';
     ctx.strokeStyle = '#8B6914';
     ctx.lineWidth   = 3;
-    ctx.shadowColor = 'rgba(0,0,0,0.6)';
-    ctx.shadowBlur  = 24;
-    this._rrect(ctx, bx, by, bw, bh, 14);
-    ctx.fill(); ctx.stroke();
+    ctx.lineJoin    = 'round';
+    ctx.beginPath();
+    ctx.moveTo(bx + br, by);
+    ctx.lineTo(bx + bw - br, by);
+    ctx.quadraticCurveTo(bx + bw, by,      bx + bw, by + br);
+    ctx.lineTo(bx + bw, by + bh - br);
+    ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - br, by + bh);
+    ctx.lineTo(bx + br, by + bh);
+    ctx.quadraticCurveTo(bx, by + bh,      bx, by + bh - br);
+    ctx.lineTo(bx, tBotY);
+    ctx.lineTo(tTipX, tTipY);
+    ctx.lineTo(bx, tTopY);
+    ctx.lineTo(bx, by + br);
+    ctx.quadraticCurveTo(bx, by,            bx + br, by);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
     ctx.restore();
 
     // 화자 이름 태그
@@ -312,36 +339,69 @@ export class OnboardingScene {
     ctx.fillStyle   = '#F5E6C3';
     ctx.strokeStyle = '#8B6914';
     ctx.lineWidth   = 2;
-    this._rrect(ctx, bx + 20, by - lh / 2, lw, lh, 6);
+    this._rrect(ctx, bx + 16, by - lh / 2, lw, lh, 6);
     ctx.fill(); ctx.stroke();
     ctx.fillStyle    = '#5C3D00';
-    ctx.font         = `bold ${Math.floor(H * 0.022)}px 'Press Start 2P', monospace`;
+    ctx.font         = `bold ${Math.floor(H * 0.022)}px 'Mulmaru', sans-serif`;
     ctx.textAlign    = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText('카카사', bx + 32, by);
+    ctx.fillText('카카시', bx + 28, by);
     ctx.restore();
 
     // ── 대사 텍스트 ──
     ctx.save();
     ctx.fillStyle    = '#2C1A00';
-    ctx.font         = `${Math.floor(H * 0.03)}px sans-serif`;
+    ctx.font         = `${Math.floor(H * 0.03)}px 'Mulmaru', sans-serif`;
     ctx.textAlign    = 'left';
     ctx.textBaseline = 'top';
+    const lineGap = page.handCheck ? H * 0.042 : H * 0.058;
     page.lines.forEach((line, i) => {
-      ctx.fillText(line, bx + 28, by + 22 + i * (H * 0.058));
+      ctx.fillText(line, bx + 22, by + 22 + i * lineGap);
     });
     ctx.restore();
 
-    // ── O/X 핸드사인 힌트 (3페이지만) ──
-    if (page.showOX) {
-      this._renderOXHint(H, bx, by, bw, bh);
+    // ── handCheck: 인식률 미터 ──
+    if (page.handCheck) {
+      this._renderHandCheck(bx, by, bw, bh);
     }
 
     // ── 페이지 도트 ──
     this._renderPageDots(bx, by, bw);
 
-    // ── 주먹 펌프 안내 ──
-    this._renderFistHint(W, H, by, handState);
+    // ── 주먹 펌프 안내 (handCheck 페이지 제외) ──
+    if (!page.handCheck) {
+      this._renderFistHint(W, H, by + bh, handState);
+    }
+  }
+
+  _renderHandCheck(bx, by, bw, bh) {
+    const ctx   = this.ctx;
+    const rate  = this._recRate;
+    const barW  = bw * 0.55;
+    const barH  = 10;
+    const barX  = bx + (bw - barW) / 2;
+    const barY  = by + bh - barH - 14;
+    const color = rate >= 80 ? '#4ADE80' : '#FFB800';
+
+    ctx.save();
+    // 라벨 (바 위)
+    ctx.fillStyle    = rate >= 80 ? '#15803D' : '#5C3D00';
+    ctx.font         = `bold ${Math.floor(bh * 0.12)}px 'Mulmaru', sans-serif`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`인식률 ${rate}%`, bx + bw / 2, barY - 6);
+
+    // 배경 바
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    this._rrect(ctx, barX, barY, barW, barH, 5);
+    ctx.fill();
+    // 진행 바
+    if (rate > 0) {
+      ctx.fillStyle = color;
+      this._rrect(ctx, barX, barY, barW * rate / 100, barH, 5);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   _renderOXHint(H, bx, by, bw, bh) {
@@ -372,7 +432,7 @@ export class OnboardingScene {
     }
 
     ctx.fillStyle    = '#7BB8FF';
-    ctx.font         = `bold ${Math.floor(H * 0.02)}px sans-serif`;
+    ctx.font         = `bold ${Math.floor(H * 0.02)}px 'Mulmaru', sans-serif`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'bottom';
     ctx.fillText('O (맞다)', ox1 + cardW / 2, cardY + cardH - 4);
@@ -403,7 +463,7 @@ export class OnboardingScene {
     }
 
     ctx.fillStyle    = '#FF9B7B';
-    ctx.font         = `bold ${Math.floor(H * 0.02)}px sans-serif`;
+    ctx.font         = `bold ${Math.floor(H * 0.02)}px 'Mulmaru', sans-serif`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'bottom';
     ctx.fillText('X (아니다)', ox2 + cardW / 2, cardY + cardH - 4);
@@ -428,28 +488,26 @@ export class OnboardingScene {
     }
   }
 
-  _renderFistHint(W, H, by, handState) {
+  _renderFistHint(W, H, bubbleBottomY, handState) {
     const ctx     = this.ctx;
     const isFist  = this._isFist(handState);
     const cooling = this._advanceCooldown > 0;
 
-    const hintY = by - 36;
+    const hintY = bubbleBottomY - 18;
 
     ctx.save();
     if (cooling) {
       // 페이지 넘어가는 중 — 깜빡임
       ctx.globalAlpha  = 0.6;
       ctx.fillStyle    = '#FFB800';
-      ctx.font         = `bold ${Math.floor(H * 0.022)}px sans-serif`;
+      ctx.font         = `bold ${Math.floor(H * 0.022)}px 'Mulmaru', sans-serif`;
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('✓', W / 2, hintY);
     } else if (isFist) {
       // 주먹 감지됨 — 밝게
       ctx.fillStyle    = '#FFB800';
-      ctx.shadowColor  = '#FFB800';
-      ctx.shadowBlur   = 14;
-      ctx.font         = `bold ${Math.floor(H * 0.022)}px sans-serif`;
+      ctx.font         = `bold ${Math.floor(H * 0.022)}px 'Mulmaru', sans-serif`;
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('✊ 주먹 감지됨 — 손을 펴서 넘어가기', W / 2, hintY);
@@ -458,7 +516,7 @@ export class OnboardingScene {
       const pulse      = 0.5 + 0.5 * Math.sin(performance.now() * 0.003);
       ctx.globalAlpha  = 0.5 + 0.5 * pulse;
       ctx.fillStyle    = 'rgba(255,255,255,0.7)';
-      ctx.font         = `${Math.floor(H * 0.02)}px sans-serif`;
+      ctx.font         = `${Math.floor(H * 0.02)}px 'Mulmaru', sans-serif`;
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('주먹을 쥐었다 펴서 넘어가기 ▶', W / 2, hintY);
@@ -481,24 +539,28 @@ export class OnboardingScene {
     const ly    = lm => lm.y        * video.videoHeight * scale + oy;
 
     lms.forEach(hand => {
-      ctx.save();
-      ctx.strokeStyle = 'rgba(255,184,0,0.75)';
-      ctx.lineWidth   = 2;
+      ctx.beginPath();
       HAND_CONNECTIONS.forEach(([a, b]) => {
-        ctx.beginPath();
         ctx.moveTo(lx(hand[a]), ly(hand[a]));
         ctx.lineTo(lx(hand[b]), ly(hand[b]));
-        ctx.stroke();
       });
+      ctx.strokeStyle = 'rgba(255,184,0,0.75)';
+      ctx.lineWidth   = 2;
+      ctx.stroke();
+
+      ctx.beginPath();
       hand.forEach((lm, i) => {
-        ctx.beginPath();
-        ctx.arc(lx(lm), ly(lm), i === 0 ? 6 : 4, 0, Math.PI * 2);
-        ctx.fillStyle   = i === 0 ? '#FFB800' : 'rgba(255,184,0,0.85)';
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth   = 1;
-        ctx.fill(); ctx.stroke();
+        if (i !== 0) { ctx.moveTo(lx(lm) + 4, ly(lm)); ctx.arc(lx(lm), ly(lm), 4, 0, Math.PI * 2); }
       });
-      ctx.restore();
+      ctx.fillStyle   = 'rgba(255,184,0,0.85)';
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth   = 1;
+      ctx.fill(); ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(lx(hand[0]), ly(hand[0]), 6, 0, Math.PI * 2);
+      ctx.fillStyle = '#FFB800';
+      ctx.fill(); ctx.stroke();
     });
   }
 

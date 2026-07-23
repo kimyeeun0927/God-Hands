@@ -1,14 +1,16 @@
-import { Round1ResultScene } from './Round1ResultScene.js';
+import { KakashiDialogueScene, r1Pages } from './KakashiDialogueScene.js';
+import { Round2Scene }                   from './Round2Scene.js';
 
 const QUESTIONS = [
-  { text: '첫번째 문제' },
-  { text: '두번째 문제' },
-  { text: '세번째 문제' },
+  { text: '"Prometeus"는 올바른 영어 철자이다', answer: 'X' },
+  { text: '이 프로젝트를 위해 수집된 데이터는 총 10400개이다', answer: 'O' },
+  { text: '이 프로젝트에 사용된 손 인식 기술은 MediaPipe이다', answer: 'O' },
 ];
 
-const POINTS_PER_Q    = 100;
-const FEEDBACK_MS     = 1200;
+const POINTS_PER_Q     = 100;
+const FEEDBACK_MS      = 1500;
 const ADVANCE_COOLDOWN = 700;
+const HOLD_CONFIRM_MS  = 1500; // 제스처를 이만큼 유지하면 제출
 
 const HAND_CONNECTIONS = [
   [0,1],[1,2],[2,3],[3,4],
@@ -30,15 +32,20 @@ export class Round1Scene {
     this._phase           = 'question'; // 'question' | 'feedback' | 'complete'
     this._feedbackMs      = 0;
     this._completeMs      = 0;
-    this._fistHeld        = false;
-    this._advanceCooldown = ADVANCE_COOLDOWN; // 첫 문제 직후 실수 방지
+    this._currentSide     = null;   // 'O' | 'X' — 현재 감지된 제스처
+    this._holdMs          = 0;      // 제스처 유지 시간
+    this._lastResult      = false;
+    this._advanceCooldown = ADVANCE_COOLDOWN;
 
     this._assets = {};
   }
 
   init() {
-    this._tryLoad('sign_o', 'assets/handsigns/sign_o.png');
-    this._tryLoad('sign_x', 'assets/handsigns/sign_x.png');
+    this._tryLoad('sign_o',     'assets/handsigns/sign_o.png');
+    this._tryLoad('sign_x',     'assets/handsigns/sign_x.png');
+    this._tryLoad('fb_correct', 'assets/gamehelper/O.png');
+    this._tryLoad('fb_wrong',   'assets/gamehelper/X.png');
+    for (let i = 0; i <= 9; i++) this._tryLoad(`d${i}`, `assets/ui/${i}.png`);
   }
 
   _tryLoad(key, src) {
@@ -46,33 +53,36 @@ export class Round1Scene {
     img.onload  = () => { this._assets[key] = img; };
     img.onerror = () => {};
     img.src = src;
+    if (img.complete && img.naturalWidth > 0) this._assets[key] = img;
   }
 
-  // ── 주먹 판정 ────────────────────────────────────────────────
-  _isFist(handState) {
-    const lms = handState.landmarks;
-    if (!lms?.length) return false;
-    const tips = [8, 12, 16, 20];
-    const pips = [6, 10, 14, 18];
-    return lms.some(hand => tips.every((t, i) => hand[t].y > hand[pips[i]].y));
+  // gesture 'o' → O, 'x' → X
+  _getSideFromHand(handState) {
+    if (handState.gesture === 'o') return 'O';
+    if (handState.gesture === 'x') return 'X';
+    return null;
   }
 
-  // ── Update ───────────────────────────────────────────────────
   update(dt, handState) {
     this._advanceCooldown = Math.max(0, this._advanceCooldown - dt);
 
     if (this._phase === 'question') {
-      if (this._advanceCooldown > 0) { this._fistHeld = false; return; }
+      this._currentSide = this._getSideFromHand(handState);
+      if (this._advanceCooldown > 0) { this._holdMs = 0; return; }
 
-      const fist = this._isFist(handState);
-      if (fist && !this._fistHeld) {
-        this._fistHeld = true;
-      } else if (!fist && this._fistHeld) {
-        this._fistHeld        = false;
-        this._advanceCooldown = ADVANCE_COOLDOWN;
-        this.manager.score   += POINTS_PER_Q;
-        this._phase           = 'feedback';
-        this._feedbackMs      = 0;
+      if (this._currentSide) {
+        this._holdMs += dt;
+        if (this._holdMs >= HOLD_CONFIRM_MS) {
+          this._holdMs          = 0;
+          this._advanceCooldown = ADVANCE_COOLDOWN;
+          const correct = this._currentSide === QUESTIONS[this._qIndex].answer;
+          if (correct) this.manager.score += POINTS_PER_Q;
+          this._lastResult = correct;
+          this._phase      = 'feedback';
+          this._feedbackMs = 0;
+        }
+      } else {
+        this._holdMs = 0;
       }
 
     } else if (this._phase === 'feedback') {
@@ -83,6 +93,8 @@ export class Round1Scene {
           this._phase = 'complete';
         } else {
           this._phase           = 'question';
+          this._currentSide     = null;
+          this._holdMs          = 0;
           this._advanceCooldown = ADVANCE_COOLDOWN;
         }
       }
@@ -90,12 +102,11 @@ export class Round1Scene {
     } else if (this._phase === 'complete') {
       this._completeMs += dt;
       if (this._completeMs >= 3000) {
-        this.manager.goto(Round1ResultScene);
+        this.manager.goto(KakashiDialogueScene, Round2Scene, r1Pages);
       }
     }
   }
 
-  // ── Render ───────────────────────────────────────────────────
   render(handState) {
     const { canvas, ctx } = this;
     const W = canvas.width, H = canvas.height;
@@ -107,7 +118,7 @@ export class Round1Scene {
     this._renderRoundLabel(W, H);
 
     if (this._phase === 'question') {
-      this._renderQuestion(W, H, handState);
+      this._renderQuestion(W, H);
     } else if (this._phase === 'feedback') {
       this._renderFeedback(W, H);
     } else {
@@ -117,98 +128,85 @@ export class Round1Scene {
     this._renderHands(handState, W, H);
   }
 
-  // ── Round 라벨 ───────────────────────────────────────────────
-  _renderRoundLabel(W, H) {
-    const ctx = this.ctx;
-    ctx.save();
-    ctx.font         = `bold ${Math.floor(H * 0.025)}px 'Press Start 2P', monospace`;
-    ctx.fillStyle    = '#FFB800';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'top';
-    ctx.shadowColor  = '#FF8C00';
-    ctx.shadowBlur   = 20;
-    ctx.fillText('ROUND 1', W / 2, H * 0.06);
-    ctx.restore();
-  }
+  _renderRoundLabel() {}
 
-  // ── 문제 화면 ────────────────────────────────────────────────
-  _renderQuestion(W, H, handState) {
+  _renderQuestion(W, H) {
     const ctx = this.ctx;
     const q   = QUESTIONS[this._qIndex];
 
-    // 문제 번호
     ctx.save();
-    ctx.font         = `${Math.floor(H * 0.02)}px 'JetBrains Mono', monospace`;
+    ctx.font         = `${Math.floor(H * 0.02)}px 'Mulmaru', sans-serif`;
     ctx.fillStyle    = 'rgba(255,255,255,0.5)';
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`문제 ${this._qIndex + 1} / ${QUESTIONS.length}`, W / 2, H * 0.22);
+    ctx.fillText(`문제 ${this._qIndex + 1} / ${QUESTIONS.length}`, W / 2, H * 0.21);
+    ctx.restore();
+
+    ctx.save();
+    ctx.font         = `${Math.floor(H * 0.015)}px 'Mulmaru', sans-serif`;
+    ctx.fillStyle    = 'rgba(245,230,195,0.45)';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('O / X 퀴즈', W / 2, H * 0.26);
     ctx.restore();
 
     // 문제 박스
     const bw = W * 0.68, bh = H * 0.18;
-    const bx = W / 2 - bw / 2, by = H * 0.3;
+    const bx = W / 2 - bw / 2, by = H * 0.31;
 
     ctx.save();
     ctx.fillStyle   = 'rgba(245,230,195,0.93)';
     ctx.strokeStyle = '#8B6914';
     ctx.lineWidth   = 3;
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur  = 20;
     this._rrect(ctx, bx, by, bw, bh, 14);
     ctx.fill(); ctx.stroke();
 
     ctx.fillStyle    = '#2C1A00';
-    ctx.font         = `bold ${Math.floor(H * 0.042)}px sans-serif`;
+    ctx.font         = `bold ${Math.floor(H * 0.030)}px 'Mulmaru', sans-serif`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
-    ctx.shadowBlur   = 0;
-    ctx.fillText(q.text, W / 2, by + bh / 2);
+    this._fillTextWrapped(ctx, q.text, W / 2, by + bh / 2, bw * 0.9, H * 0.040);
     ctx.restore();
 
-    // O / X 안내 (왼쪽 O, 오른쪽 X)
-    this._renderOXHint(W, bx, by, bw, bh);
+    // O / X 힌트 — 현재 제스처에 따라 강조 + 홀드 진행도
+    const holdProg = Math.min(1, this._holdMs / HOLD_CONFIRM_MS);
+    this._renderOXHint(W, bx, by, bw, bh, this._currentSide, holdProg);
 
-    // 주먹 안내
-    const isFist = this._isFist(handState);
-    const pulse  = 0.5 + 0.5 * Math.sin(performance.now() * 0.003);
-
+    // 안내 텍스트
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.003);
     ctx.save();
-    if (isFist) {
-      ctx.fillStyle   = '#FFB800';
-      ctx.shadowColor = '#FFB800';
-      ctx.shadowBlur  = 14;
-      ctx.font        = `bold ${Math.floor(H * 0.022)}px sans-serif`;
-      ctx.textAlign   = 'center';
+    if (this._currentSide) {
+      const sideColor = this._currentSide === 'O' ? '#7BB8FF' : '#FF9B7B';
+      ctx.fillStyle    = sideColor;
+      ctx.font         = `bold ${Math.floor(H * 0.022)}px 'Mulmaru', sans-serif`;
+      ctx.textAlign    = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillText('✊ 감지됨 — 손을 펴서 정답 제출', W / 2, by + bh + 24);
+      ctx.fillText(`${this._currentSide} 제스처 유지 중... (${Math.ceil((HOLD_CONFIRM_MS - this._holdMs) / 1000 * 10) / 10}초)`, W / 2, by + bh + 22);
     } else {
       ctx.globalAlpha  = 0.5 + 0.5 * pulse;
       ctx.fillStyle    = 'rgba(255,255,255,0.7)';
-      ctx.font         = `${Math.floor(H * 0.02)}px sans-serif`;
+      ctx.font         = `${Math.floor(H * 0.019)}px 'Mulmaru', sans-serif`;
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillText('주먹을 쥐었다 펴서 정답 제출 ▶', W / 2, by + bh + 24);
+      ctx.fillText('양손으로 O 또는 X 제스처를 만들어 유지하세요 ▶', W / 2, by + bh + 22);
     }
     ctx.restore();
   }
 
-  // ── O(왼쪽) / X(오른쪽) 안내 ──────────────────────────────────
-  _renderOXHint(W, bx, by, bw, bh) {
+  _renderOXHint(W, bx, by, bw, bh, currentSide, holdProg) {
     const ctx  = this.ctx;
-    const size = bh * 0.8;
+    const size = bh * 0.82;
     const gap  = W * 0.03;
     const cy   = by + bh / 2;
 
-    const drawSide = (img, glyph, color, x) => {
+    const drawSide = (img, glyph, color, x, isSelected) => {
       ctx.save();
+      ctx.globalAlpha = currentSide === null ? 0.75 : (isSelected ? 1.0 : 0.30);
       if (img) {
         ctx.drawImage(img, x, cy - size / 2, size, size);
       } else {
         ctx.strokeStyle = color;
-        ctx.lineWidth   = 5;
-        ctx.shadowColor = color;
-        ctx.shadowBlur  = 10;
+        ctx.lineWidth   = isSelected ? 6 : 5;
         if (glyph === 'O') {
           ctx.beginPath();
           ctx.arc(x + size / 2, cy, size * 0.42, 0, Math.PI * 2);
@@ -225,73 +223,134 @@ export class Round1Scene {
       ctx.restore();
     };
 
-    drawSide(this._assets.sign_o, 'O', '#7BB8FF', bx - gap - size);
-    drawSide(this._assets.sign_x, 'X', '#FF9B7B', bx + bw + gap);
+    const drawProgress = (color, cx, cyc) => {
+      if (holdProg <= 0) return;
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = 5;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.arc(cx, cyc, size * 0.52, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * holdProg);
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    drawSide(this._assets.sign_o, 'O', '#7BB8FF', bx - gap - size, currentSide === 'O');
+    drawSide(this._assets.sign_x, 'X', '#FF9B7B', bx + bw + gap,   currentSide === 'X');
+
+    if (currentSide === 'O') drawProgress('#7BB8FF', bx - gap - size + size / 2, cy);
+    if (currentSide === 'X') drawProgress('#FF9B7B', bx + bw + gap  + size / 2, cy);
   }
 
-  // ── 피드백 화면 ──────────────────────────────────────────────
   _renderFeedback(W, H) {
-    const ctx = this.ctx;
-    const t   = Math.min(1, this._feedbackMs / FEEDBACK_MS);
+    const ctx     = this.ctx;
+    const t       = Math.min(1, this._feedbackMs / FEEDBACK_MS);
+    const correct = this._lastResult;
+    const scale   = 0.75 + 0.25 * Math.min(1, t * 6);
 
-    // 정답! 텍스트 (팝인)
-    const scale = 0.75 + 0.25 * Math.min(1, t * 6);
+    // 정답/오답 이미지
+    const fbImg = this._assets[correct ? 'fb_correct' : 'fb_wrong'];
     ctx.save();
     ctx.translate(W / 2, H * 0.42);
     ctx.scale(scale, scale);
-    ctx.font         = `bold ${Math.floor(H * 0.09)}px 'Press Start 2P', monospace`;
-    ctx.fillStyle    = '#4ADE80';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.shadowColor  = '#22C55E';
-    ctx.shadowBlur   = 50;
-    ctx.fillText('정답!', 0, 0);
+    if (fbImg) {
+      const h = H * 0.18;
+      const w = h * (fbImg.naturalWidth / fbImg.naturalHeight);
+      ctx.drawImage(fbImg, -w / 2, -h / 2, w, h);
+    } else {
+      ctx.font         = `bold ${Math.floor(H * 0.09)}px 'Mulmaru', sans-serif`;
+      ctx.fillStyle    = correct ? '#4ADE80' : '#FF4D4D';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(correct ? '정답!' : '오답!', 0, 0);
+    }
     ctx.restore();
 
-    // +100 점수 상승 텍스트
-    const rise = t * H * 0.14;
+    // 오답일 때 정답 표시
+    if (!correct) {
+      const q = QUESTIONS[this._qIndex];
+      ctx.save();
+      ctx.globalAlpha  = Math.max(0, Math.min(1, (t - 0.2) * 3));
+      ctx.font         = `${Math.floor(H * 0.022)}px 'Mulmaru', sans-serif`;
+      ctx.fillStyle    = 'rgba(255,255,255,0.75)';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`정답: ${q.answer}`, W / 2, H * 0.58);
+      ctx.restore();
+    }
+
+    // 점수 플로팅 (숫자 이미지)
+    const rise  = t * H * 0.14;
+    const alpha = Math.max(0, 1 - t * 1.1);
+    this._drawScoreNum(ctx, correct ? `+${POINTS_PER_Q}` : '+0', W / 2, H * 0.62 - rise, H * 0.072, alpha, correct ? '#FFD23F' : '#888888');
+  }
+
+  _drawScoreNum(ctx, str, cx, cy, digitH, alpha = 1, plusColor = '#FFD23F') {
+    const chars = [...str];
+    const gap   = digitH * 0.06;
+    const widths = chars.map(c => {
+      if (/[0-9]/.test(c)) {
+        const img = this._assets[`d${c}`];
+        return img ? digitH * (img.naturalWidth / img.naturalHeight) : digitH * 0.62;
+      }
+      return digitH * 0.5;
+    });
+    const totalW = widths.reduce((s, w) => s + w, 0) + gap * (chars.length - 1);
+
     ctx.save();
-    ctx.globalAlpha  = Math.max(0, 1 - t * 1.1);
-    ctx.font         = `bold ${Math.floor(H * 0.04)}px 'Press Start 2P', monospace`;
-    ctx.fillStyle    = '#FFB800';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.shadowColor  = '#FF8C00';
-    ctx.shadowBlur   = 20;
-    ctx.fillText(`+${POINTS_PER_Q}`, W / 2, H * 0.62 - rise);
+    ctx.globalAlpha = alpha;
+    let x = cx - totalW / 2;
+    chars.forEach((c, i) => {
+      const w = widths[i];
+      if (/[0-9]/.test(c)) {
+        const img = this._assets[`d${c}`];
+        if (img) ctx.drawImage(img, x, cy - digitH / 2, w, digitH);
+      } else {
+        // '+' 또는 '-' 를 캔버스로 직접 그림
+        const thick = digitH * 0.13;
+        ctx.fillStyle = c === '+' ? plusColor : '#FF4D4D';
+        ctx.fillRect(x + (w - thick) / 2, cy - digitH * 0.32, thick, digitH * 0.64);
+        if (c === '+') ctx.fillRect(x + w * 0.08, cy - thick / 2, w * 0.84, thick);
+      }
+      x += w + gap;
+    });
     ctx.restore();
   }
 
-  // ── 완료 화면 ────────────────────────────────────────────────
   _renderComplete(W, H) {
-    const ctx = this.ctx;
-
+    const ctx   = this.ctx;
+    const pulse = 0.4 + 0.6 * Math.sin(performance.now() * 0.003);
     ctx.save();
-    ctx.font         = `bold ${Math.floor(H * 0.06)}px 'Press Start 2P', monospace`;
-    ctx.fillStyle    = '#FFB800';
+    ctx.globalAlpha  = pulse;
+    ctx.font         = `${Math.floor(H * 0.022)}px 'Mulmaru', sans-serif`;
+    ctx.fillStyle    = 'rgba(255,255,255,0.7)';
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
-    ctx.shadowColor  = '#FF8C00';
-    ctx.shadowBlur   = 40;
-    ctx.fillText('ROUND 1 CLEAR!', W / 2, H * 0.38);
-    ctx.restore();
-
-    ctx.save();
-    ctx.font         = `${Math.floor(H * 0.028)}px 'JetBrains Mono', monospace`;
-    ctx.fillStyle    = 'rgba(255,255,255,0.65)';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText(`Round 1 점수: ${QUESTIONS.length * POINTS_PER_Q}점`, W / 2, H * 0.5);
-
-    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.003);
-    ctx.globalAlpha = 0.5 + 0.5 * pulse;
-    ctx.font        = `${Math.floor(H * 0.02)}px sans-serif`;
-    ctx.fillStyle   = 'rgba(255,255,255,0.6)';
-    ctx.fillText('Round 2 준비중...', W / 2, H * 0.6);
+    ctx.fillText('잠시 후 다음 시험으로...', W / 2, H * 0.5);
     ctx.restore();
   }
 
-  // ── 손 랜드마크 ──────────────────────────────────────────────
+  // 공백 단위로 줄 바꿈 (중앙 정렬)
+  _fillTextWrapped(ctx, text, cx, cy, maxW, lineH) {
+    const words = text.split(' ');
+    const lines = [];
+    let line = '';
+    for (const w of words) {
+      const test = line ? `${line} ${w}` : w;
+      if (ctx.measureText(test).width > maxW && line) {
+        lines.push(line);
+        line = w;
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+    const totalH = (lines.length - 1) * lineH;
+    lines.forEach((l, i) => {
+      ctx.fillText(l, cx, cy - totalH / 2 + lineH * i);
+    });
+  }
+
   _renderHands(handState, W, H) {
     const lms = handState.landmarks;
     if (!lms?.length || !this.video.videoWidth) return;
@@ -304,28 +363,34 @@ export class Round1Scene {
     const ly    = lm => lm.y        * video.videoHeight * scale + oy;
 
     lms.forEach(hand => {
-      ctx.save();
-      ctx.strokeStyle = 'rgba(255,184,0,0.75)';
-      ctx.lineWidth   = 2;
+      // 연결선 전체 한 번에
+      ctx.beginPath();
       HAND_CONNECTIONS.forEach(([a, b]) => {
-        ctx.beginPath();
         ctx.moveTo(lx(hand[a]), ly(hand[a]));
         ctx.lineTo(lx(hand[b]), ly(hand[b]));
-        ctx.stroke();
       });
+      ctx.strokeStyle = 'rgba(255,184,0,0.75)';
+      ctx.lineWidth   = 2;
+      ctx.stroke();
+
+      // 일반 랜드마크 전체 한 번에
+      ctx.beginPath();
       hand.forEach((lm, i) => {
-        ctx.beginPath();
-        ctx.arc(lx(lm), ly(lm), i === 0 ? 6 : 4, 0, Math.PI * 2);
-        ctx.fillStyle   = i === 0 ? '#FFB800' : 'rgba(255,184,0,0.85)';
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth   = 1;
-        ctx.fill(); ctx.stroke();
+        if (i !== 0) { ctx.moveTo(lx(lm) + 4, ly(lm)); ctx.arc(lx(lm), ly(lm), 4, 0, Math.PI * 2); }
       });
-      ctx.restore();
+      ctx.fillStyle   = 'rgba(255,184,0,0.85)';
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth   = 1;
+      ctx.fill(); ctx.stroke();
+
+      // 손목 별도 (크기·색 다름)
+      ctx.beginPath();
+      ctx.arc(lx(hand[0]), ly(hand[0]), 6, 0, Math.PI * 2);
+      ctx.fillStyle = '#FFB800';
+      ctx.fill(); ctx.stroke();
     });
   }
 
-  // ── roundRect 폴리필 ─────────────────────────────────────────
   _rrect(ctx, x, y, w, h, r) {
     ctx.beginPath();
     ctx.moveTo(x + r, y);

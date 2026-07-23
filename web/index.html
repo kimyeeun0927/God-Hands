@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HANDSEAL</title>
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.all.min.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;700&family=Syne:wght@800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="src/ui/style.css" />
 </head>
 <body>
@@ -35,12 +32,7 @@
     <div id="dev-badge">DEV &nbsp;|&nbsp; ` to close</div>
   </div>
 
-  <div id="mode-bar">
-    <button class="mode-btn active" data-mode="demo">DEMO</button>
-    <button class="mode-btn" data-mode="collect">DATA COLLECT</button>
-  </div>
-
-  <div id="collect-panel" class="hidden">
+<div id="collect-panel" class="hidden">
     <div id="collect-info">
       <span id="collect-jutsu">술식: —</span>
       <span id="collect-count">총 수집: 0개</span>
@@ -74,42 +66,13 @@
 
   <div id="fps-counter">-- FPS</div>
 
-  <!-- 타이머 HUD -->
-  <div id="timer-hud">
-    <div class="timer-widget">
-      <img id="timer-img" src="assets/ui/timer.png" />
-      <div id="timer-value">00</div>
-    </div>
-  </div>
 
-  <!-- 픽셀 아트 SCORE HUD -->
+<!-- 픽셀 아트 SCORE HUD -->
   <div id="score-hud">
-    <div id="score-label-row">
-      <span class="score-diamond">✦</span>
-      <span id="score-label-text">SCORE</span>
-      <span class="score-diamond">✦</span>
-    </div>
+    <img id="score-label-img" src="assets/ui/SCORE.png" alt="SCORE" />
     <div id="score-value">000000</div>
   </div>
 
-  <!-- 손 인식 실시간 HUD -->
-  <div id="hand-hud">
-    <div class="hud-section">
-      <span class="hud-label">손 인식 상태</span>
-      <span id="hud-status-badge" class="hud-badge hud-none">손 없음</span>
-    </div>
-    <div class="hud-divider"></div>
-    <div class="hud-section">
-      <span class="hud-label">정확도</span>
-      <div class="hud-bar-wrap"><div id="hud-bar" class="hud-bar"></div></div>
-      <span id="hud-pct">0%</span>
-    </div>
-    <div class="hud-divider"></div>
-    <div class="hud-section">
-      <span class="hud-label">현재 동작</span>
-      <span id="hud-gesture-name">—</span>
-    </div>
-  </div>
 
   <script type="module" src="src/main.js"></script>
 </body>
