@@ -19,6 +19,7 @@ export class UIController {
     this.pillEl       = document.getElementById('status-pill');
     this.confBar      = document.getElementById('confidence-bar');
     this.confLabel    = document.getElementById('confidence-label');
+    this.fpsEl        = document.getElementById('fps-label');
     this.collectPanel = document.getElementById('collect-panel');
   }
   setJutsu(jutsu) {
@@ -29,6 +30,9 @@ export class UIController {
     this.confBar.style.width      = `${pct}%`;
     this.confLabel.textContent    = `${pct}%`;
     this.confBar.style.background = pct > 80 ? '#8b5cf6' : pct > 50 ? '#f6e05e' : '#4a5568';
+  }
+  setFPS(fps) {
+    this.fpsEl.textContent = `${fps} FPS`;
   }
   setStatus(type, text) {
     this.statusEl.textContent = text;

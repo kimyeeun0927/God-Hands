@@ -27,39 +27,57 @@ window.addEventListener('resize', resizeCanvas);
 
 function normalize(landmarks, handednessList) {
   const result = { right: null, left: null };
-  if (!landmarks) return result;
+  if (!landmarks || landmarks.length < 2) return result;
+
+  let rightWrist = null, leftWrist = null;
+  let rightLms = null, leftLms = null;
+
   landmarks.forEach((lms, idx) => {
     const label = handednessList?.[idx]?.[0]?.categoryName;
-    // Tasks API: 미러링 카메라 기준 Left/Right 반전 없음
     const side  = label === 'Left' ? 'right' : 'left';
-    const wrist = lms[0];
-    const arr   = new Float32Array(63);
-    lms.forEach((lm, i) => {
-      arr[i*3]   = lm.x - wrist.x;
-      arr[i*3+1] = lm.y - wrist.y;
-      arr[i*3+2] = lm.z - wrist.z;
-    });
-    result[side] = arr;
+    if (side === 'right') { rightWrist = lms[0]; rightLms = lms; }
+    if (side === 'left')  { leftWrist  = lms[0]; leftLms  = lms; }
   });
+
+  if (!rightWrist || !leftWrist) return result;
+
+  const cx = (rightWrist.x + leftWrist.x) / 2;
+  const cy = (rightWrist.y + leftWrist.y) / 2;
+  const cz = (rightWrist.z + leftWrist.z) / 2;
+  const scale = Math.hypot(
+    rightWrist.x - leftWrist.x,
+    rightWrist.y - leftWrist.y,
+    rightWrist.z - leftWrist.z,
+  ) || 1;
+
+  const toArr = (lms) => {
+    const arr = new Float32Array(63);
+    lms.forEach((lm, i) => {
+      arr[i*3]   = (lm.x - cx) / scale;
+      arr[i*3+1] = (lm.y - cy) / scale;
+      arr[i*3+2] = (lm.z - cz) / scale;
+    });
+    return arr;
+  };
+
+  result.right = toArr(rightLms);
+  result.left  = toArr(leftLms);
   return result;
 }
 
 async function init() {
   ui.setStatus('loading', 'MediaPipe 로딩중...');
 
-  // 카메라 스트림
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { width: 1280, height: 720, facingMode: 'user' }
   });
   video.srcObject = stream;
   await new Promise(res => { video.onloadedmetadata = () => video.play().then(res); });
 
-  // Tasks Vision WASM 로드
   const vision = await FilesetResolver.forVisionTasks(
     'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm'
   );
 
-  // HandLandmarker 초기화
   const handLandmarker = await HandLandmarker.createFromOptions(vision, {
     baseOptions: {
       modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
@@ -72,7 +90,6 @@ async function init() {
     minTrackingConfidence: 0.3,
   });
 
-  // FaceLandmarker 초기화 (사륜안용)
   const faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
     baseOptions: {
       modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
@@ -82,12 +99,14 @@ async function init() {
     numFaces: 1,
   });
 
-  classifier.loadModel().catch(() => {});
+  await classifier.loadModel().catch(() => {});
+
   setupCollectUI();
   ui.setStatus('active', '실행중');
 
-  // ── 메인 루프 ──────────────────────────────────────
   let lastTime = -1;
+  let fpsFrameCount = 0;
+  let fpsLastUpdate = performance.now();
 
   async function loop() {
     requestAnimationFrame(loop);
@@ -97,7 +116,13 @@ async function init() {
     if (now === lastTime) return;
     lastTime = now;
 
-    // 손 감지
+    fpsFrameCount++;
+    if (now - fpsLastUpdate >= 500) {
+      ui.setFPS(Math.round((fpsFrameCount * 1000) / (now - fpsLastUpdate)));
+      fpsFrameCount  = 0;
+      fpsLastUpdate  = now;
+    }
+
     const handResult = handLandmarker.detectForVideo(video, now);
     const landmarks  = handResult.landmarks;
     const handedness = handResult.handednesses;
@@ -105,12 +130,12 @@ async function init() {
     const normalized = normalize(landmarks, handedness);
 
     if (state.mode === 'collect') {
-      collector.setLandmarks(normalized);
+      collector.setLandmarks(landmarks, handedness);  // normalized → raw
       arFx.draw('none', landmarks?.length ? landmarks : null, video);
       return;
     }
 
-    if (!landmarks?.length) {
+    if (!normalized.right || !normalized.left) {
       arFx.draw('none', null, video);
       ui.setJutsu('none');
       ui.setConfidence(0);
@@ -122,7 +147,6 @@ async function init() {
     ui.setJutsu(jutsu);
     ui.setConfidence(confidence);
 
-    // 사륜안이면 얼굴도 감지
     let faceLms = null;
     if (jutsu === 'sharingan') {
       const faceResult = faceLandmarker.detectForVideo(video, now);
@@ -139,6 +163,7 @@ async function init() {
 // ── 수집 모드 UI ─────────────────────────────────────
 function setupCollectUI() {
   let selectedJutsu = null;
+
   document.querySelectorAll('.jutsu-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.jutsu-btn').forEach(b => b.classList.remove('active'));
@@ -149,6 +174,7 @@ function setupCollectUI() {
       document.getElementById('record-btn-text').textContent = '녹화 시작';
     });
   });
+
   document.getElementById('record-btn').addEventListener('click', () => {
     const cd = parseInt(document.getElementById('cfg-countdown').value) || 3;
     const dr = parseInt(document.getElementById('cfg-duration').value)  || 3;
@@ -156,6 +182,11 @@ function setupCollectUI() {
     collector.RECORD_DURATION_MS = dr * 1000;
     collector.startRecording(selectedJutsu);
   });
+
+  document.getElementById('stop-btn').addEventListener('click', () => {
+    collector.stopRecording();
+  });
+
   document.getElementById('save-btn').addEventListener('click', () => collector.exportCSV());
 
   document.getElementById('undo-btn').addEventListener('click', () => {
@@ -175,25 +206,41 @@ function onCollectorState({ phase, remaining, captured, count }) {
   const recInd    = document.getElementById('record-indicator');
   const toast     = document.getElementById('done-toast');
   const recordBtn = document.getElementById('record-btn');
+  const stopBtn   = document.getElementById('stop-btn');
   const btnText   = document.getElementById('record-btn-text');
+
   document.getElementById('collect-count').textContent = `총 수집: ${count}개`;
 
   if (phase === 'countdown') {
     overlay.classList.add('visible');
     document.getElementById('countdown-number').textContent = remaining;
-    recordBtn.disabled = true; btnText.textContent = `${remaining}초...`;
+    recordBtn.disabled = true;
+    btnText.textContent = `${remaining}초...`;
+    stopBtn.classList.remove('hidden');
   } else if (phase === 'recording') {
     overlay.classList.remove('visible');
     recInd.classList.add('visible');
-    recordBtn.classList.add('recording'); recordBtn.disabled = true; btnText.textContent = '녹화 중...';
+    recordBtn.classList.add('recording');
+    recordBtn.disabled = true;
+    btnText.textContent = '녹화 중...';
+    stopBtn.classList.remove('hidden');
   } else if (phase === 'done') {
     recInd.classList.remove('visible');
-    recordBtn.classList.remove('recording'); recordBtn.disabled = false; btnText.textContent = '다시 녹화';
+    recordBtn.classList.remove('recording');
+    recordBtn.disabled = false;
+    btnText.textContent = '다시 녹화';
+    stopBtn.classList.add('hidden');
     document.getElementById('done-msg').textContent = `${captured}프레임 수집 완료 (누적 ${count}개)`;
     toast.classList.add('visible');
     setTimeout(() => toast.classList.remove('visible'), 2500);
   } else {
-    overlay.classList.remove('visible'); recInd.classList.remove('visible');
+    // idle
+    overlay.classList.remove('visible');
+    recInd.classList.remove('visible');
+    recordBtn.classList.remove('recording');
+    recordBtn.disabled = false;
+    btnText.textContent = '녹화 시작';
+    stopBtn.classList.add('hidden');
   }
 }
 

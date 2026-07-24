@@ -36,7 +36,7 @@ export class AREffectEngine {
     case 'rabbit': this._drawOrb(W, H, '60,120,255', 'rgba(0,80,255,0.6)');  break;
     case 'rat':    this._drawOrb(W, H, '255,220,30', 'rgba(255,180,0,0.6)'); break;
     case 'monkey': this._drawOrb(W, H, '255,140,0',  'rgba(255,120,0,0.6)');  break; // 주황
-    case 'dog':    this._drawOrb(W, H, '180,120,60', 'rgba(160,100,40,0.6)'); break; // 갈색
+    case 'dog':    this._drawOrb(W, H, '180,0,255',   'rgba(140,0,220,0.7)');   break; // 보라
     case 'snake':  this._drawOrb(W, H, '60,200,80',  'rgba(0,180,60,0.6)');   break; // 초록
     case 'o': this._drawOrb(W, H, '255,255,255', 'rgba(220,220,220,0.6)'); break; // 흰색
     case 'x': this._drawOrb(W, H, '30,30,30',   'rgba(0,0,0,0.8)');       break; // 검정

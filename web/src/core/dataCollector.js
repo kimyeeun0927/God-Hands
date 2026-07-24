@@ -8,37 +8,39 @@
  * CSV 포맷 (127컬럼):
  *   r0x,r0y,r0z,...,r20z, l0x,...,l20z, label
  */
+/**
+ * dataCollector.js — 3초 카운트다운 후 연속 녹화 수집기
+ *
+ * 흐름:
+ *   버튼 클릭 → 3초 카운트다운 → 3초간 녹화 (매 프레임 캡처)
+ *   → 자동 완료 → 다음 녹화 준비
+ *
+ * CSV 포맷 (127컬럼):
+ *   r0x,r0y,r0z,...,r20z, l0x,...,l20z, label
+ */
 
 export class DataCollector {
   constructor(onStateChange) {
-    this.rows         = [];
-    this.count        = 0;
-    this._snapshots   = []; // undo용 스냅샷 스택
-    this._currentLms  = null;
-    this._isRecording = false;
+    this.rows           = [];
+    this.count          = 0;
+    this._snapshots     = [];
+    this._currentLms    = null;
+    this._isRecording   = false;
     this._onStateChange = onStateChange ?? (() => {});
+    this._recordTimer   = null;
+    this._countdownTick = null;
 
-    // 녹화 설정
-    this.RECORD_DURATION_MS  = 3000;  // 녹화 시간
-    this.COUNTDOWN_SEC       = 3;     // 카운트다운
-    this._recordTimer        = null;
-    this._recordInterval     = null;
+    this.RECORD_DURATION_MS = 3000;
+    this.COUNTDOWN_SEC      = 3;
   }
 
-  /** HandTracker에서 매 프레임 호출 */
-  setLandmarks(normalized) {
-    this._currentLms = normalized;
-
-    // 녹화 중이면 프레임마다 자동 저장
+  setLandmarks(landmarks, handedness) {
+    this._currentLms = { landmarks, handedness };
     if (this._isRecording && this._jutsuTarget) {
       this._captureFrame();
     }
   }
 
-  /**
-   * 버튼 클릭 시 호출
-   * → 3초 카운트다운 → 3초 녹화 → 완료
-   */
   startRecording(jutsuLabel) {
     if (!jutsuLabel || jutsuLabel === '') {
       alert('술식을 먼저 선택하세요!');
@@ -53,6 +55,7 @@ export class DataCollector {
   stopRecording() {
     this._isRecording = false;
     clearTimeout(this._recordTimer);
+    clearInterval(this._countdownTick);
     this._onStateChange({ phase: 'idle', count: this.count });
   }
 
@@ -62,10 +65,10 @@ export class DataCollector {
     let remaining = this.COUNTDOWN_SEC;
     this._onStateChange({ phase: 'countdown', remaining, count: this.count });
 
-    const tick = setInterval(() => {
+    this._countdownTick = setInterval(() => {
       remaining--;
       if (remaining <= 0) {
-        clearInterval(tick);
+        clearInterval(this._countdownTick);
         this._startRecording();
       } else {
         this._onStateChange({ phase: 'countdown', remaining, count: this.count });
@@ -74,15 +77,13 @@ export class DataCollector {
   }
 
   _startRecording() {
-    this._isRecording   = true;
-    this._frameCount    = 0;
-    const startCount    = this.count;
-    // 녹화 시작 전 현재 상태를 스냅샷으로 저장 (undo용)
+    this._isRecording = true;
+    this._frameCount  = 0;
+    const startCount  = this.count;
     this._snapshots.push({ rowCount: this.rows.length, count: this.count });
 
     this._onStateChange({ phase: 'recording', count: this.count });
 
-    // RECORD_DURATION_MS 후 자동 종료
     this._recordTimer = setTimeout(() => {
       this._isRecording = false;
       const captured = this.count - startCount;
@@ -91,29 +92,31 @@ export class DataCollector {
   }
 
   _captureFrame() {
-    const lms = this._currentLms;
-    if (!lms) return;
+    const { landmarks, handedness } = this._currentLms ?? {};
+    if (!landmarks?.length) return;
 
-    const { right, left } = lms;
+    const raw = {};
+    landmarks.forEach((lms, idx) => {
+      const label = handedness?.[idx]?.[0]?.categoryName;
+      const side  = label === 'Left' ? 'right' : 'left';
+      raw[side] = lms;
+    });
 
-    // 양손 다 없으면 스킵
-    if (!right && !left) return;
+    if (!raw.right || !raw.left) return;
 
-    const r = right ?? new Float32Array(63);
-    const l = left  ?? new Float32Array(63);
+    const toFlat = (lms) => lms.flatMap(lm => [lm.x, lm.y, lm.z]);
 
-    this.rows.push([...r, ...l, this._jutsuTarget]);
+    this.rows.push([...toFlat(raw.right), ...toFlat(raw.left), this._jutsuTarget]);
     this.count++;
     this._frameCount++;
   }
 
-  /** 마지막 녹화분 취소 */
   undo() {
     if (this._snapshots.length === 0) {
       alert('되돌릴 녹화가 없습니다.');
       return 0;
     }
-    const snap = this._snapshots.pop();
+    const snap    = this._snapshots.pop();
     const removed = this.rows.length - snap.rowCount;
     this.rows.splice(snap.rowCount);
     this.count = snap.count;
