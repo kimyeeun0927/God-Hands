@@ -1,6 +1,3 @@
-// labels.json의 LabelEncoder 알파벳순과 동일하게 유지
-const JUTSU_LABELS = ['boar', 'dog', 'monkey', 'none', 'o', 'rabbit', 'rat', 'snake', 'x'];
-
 export class GestureClassifier {
   constructor() {
     this._lastJutsu = 'none';
@@ -10,8 +7,9 @@ export class GestureClassifier {
 
   async loadModel() {
     try {
-      const ort = await import('https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js');
       this.model = await ort.InferenceSession.create('/models/handseal.onnx');
+      const res = await fetch('/models/labels.json');
+      this.labels = await res.json();
       this.hasModel = true;
     } catch {
       this.hasModel = false;
@@ -39,9 +37,15 @@ export class GestureClassifier {
     if (normalized.left)  input.set(normalized.left,  63);
     const tensor = new ort.Tensor('float32', input, [1, 126]);
     const out    = await this.model.run({ input: tensor });
-    const probs  = out.output.data;
+    const logits = Array.from(out.output.data);
+    const maxL   = Math.max(...logits);
+    const exps   = logits.map(x => Math.exp(x - maxL));
+    const sum    = exps.reduce((a, b) => a + b, 0);
+    const probs  = exps.map(x => x / sum);
     const maxIdx = probs.indexOf(Math.max(...probs));
-    return { jutsu: JUTSU_LABELS[maxIdx], confidence: Math.round(probs[maxIdx] * 100) };
+    const conf   = Math.round(probs[maxIdx] * 100);
+    if (conf < 90) return { jutsu: 'none', confidence: conf };
+    return { jutsu: this.labels[maxIdx], confidence: conf };
   }
 
   _predictRules(normalized) {
