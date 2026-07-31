@@ -1,67 +1,84 @@
-# Got-Hands 🖐️
+# God Hands 🖐️
 
-나루토 핸드사인을 실시간 CV로 인식해서 술식 이펙트를 발동하는 웹앱
+나루토 핸드사인(수인)을 웹캠으로 실시간 인식해서 술식 이펙트를 발동시키는 브라우저 앱입니다.
+MediaPipe로 손 랜드마크를 추출하고, 자체 학습한 MLP 모델(ONNX)로 어떤 수인인지 분류한 뒤 캔버스 위에 이펙트를 그립니다.
+
+## 주요 기능
+
+- **실시간 손 인식**: MediaPipe Tasks Vision (`HandLandmarker`)로 최대 2개 손 동시 추적
+- **제스처 분류**: 좌표를 정규화해 학습된 ONNX 모델로 추론, 모델이 없으면 규칙 기반 fallback으로 동작
+- **AR 이펙트**: 인식된 술식에 맞춰 캔버스 위에 오브(orb) 이펙트를 실시간 렌더링
+- **데이터 수집 모드**: 웹 UI에서 바로 학습용 랜드마크 데이터를 녹화하고 CSV로 내보내기
+- **학습 파이프라인**: 수집한 CSV → 정규화 → 증강 → MLP 학습 → ONNX 변환까지 한 번에 (`ml/train.py`)
+
+## 지원 술식
+
+| 수인 | 표시 |
+|---|---|
+| 亥 (돼지) | boar |
+| 卯 (토끼) | rabbit |
+| 子 (쥐) | rat |
+| 申 (원숭이) | monkey |
+| 戌 (개) | dog |
+| 巳 (뱀) | snake |
+| O | o |
+| X | x |
+
+## 기술 스택
+
+- **프론트엔드**: Vanilla JS (ES Modules), Canvas 2D
+- **손 인식**: [MediaPipe Tasks Vision](https://developers.google.com/mediapipe) (HandLandmarker, FaceLandmarker)
+- **추론**: [onnxruntime-web](https://onnxruntime.ai/)
+- **학습**: PyTorch, scikit-learn, ONNX export
 
 ## 프로젝트 구조
 
-```
-handseal/
-├── web/                        # 프론트엔드 (Live Server로 실행)
+God-Hands/
+├── web/                          # 프론트엔드 (Live Server로 실행)
 │   ├── index.html
-│   ├── public/
-│   │   └── models/
-│   │       └── handseal.onnx   # 학습 후 여기에 복사
+│   ├── models/
+│   │   ├── handseal.onnx         # 학습된 모델 (train.py가 자동 배포)
+│   │   └── labels.json
 │   └── src/
-│       ├── main.js             # 앱 진입점 / 파이프라인 연결
+│       ├── main.js               # 앱 진입점 — MediaPipe 초기화 / 메인 루프
 │       ├── core/
-│       │   ├── handTracker.js      # MediaPipe 래퍼 + 정규화
-│       │   ├── gestureClassifier.js # ONNX 추론 + 규칙 기반 fallback
-│       │   └── dataCollector.js    # 학습 데이터 수집 + CSV 저장
+│       │   ├── gestureClassifier.js  # ONNX 추론 + 규칙 기반 fallback
+│       │   └── dataCollector.js      # 학습 데이터 녹화 + CSV 저장
 │       ├── effects/
-│       │   └── effectEngine.js     # Three.js 파티클 이펙트
+│       │   └── arEffectEngine.js     # 캔버스 2D AR 이펙트
 │       └── ui/
-│           ├── uiController.js     # UI 상태 관리
+│           ├── uiController.js       # UI 상태 관리
 │           └── style.css
 │
-└── ml/                         # 학습 파이프라인 (Python)
-    ├── train.py                # 모델 학습 + ONNX 변환
-    ├── data/
-    │   └── raw/                # CSV 파일 여기에 저장
-    └── models/                 # 학습된 모델 저장
-        ├── handseal.onnx
-        └── labels.json
-```
+└── ml/                            # 학습 파이프라인 (Python)
+├── train.py                   # 정규화 + 증강 + 학습 + ONNX 변환
+├── data/raw/                  # 수집된 CSV 저장 위치
+└── models/                    # 학습 결과 (best.pt, handseal.onnx, labels.json)
+
+
 
 ## 실행 방법
 
-### 1단계: 웹앱 실행
-```
+### 1. 웹앱 실행
 VS Code → web/index.html → Go Live
-```
-처음엔 ONNX 모델 없으므로 규칙 기반 fallback으로 동작
 
-### 2단계: 데이터 수집
-1. 웹앱에서 **DATA COLLECT** 모드 선택
-2. 술식 버튼 클릭으로 레이블 선택
-3. 손 포즈 잡고 **SPACE** → 캡처
-4. 술식당 500개 이상 수집 권장
-5. **CSV 저장** → `ml/data/raw/`에 이동
 
-### 3단계: 모델 학습
+카메라 접근 권한을 허용해주세요. ONNX 모델이 없으면 규칙 기반 fallback으로 동작합니다.
+
+### 2. 학습 데이터 수집
+1. 상단 모드 바에서 **DATA COLLECT** 선택
+2. 술식 버튼으로 레이블 선택
+3. 손 포즈를 잡고 **녹화 시작** → 카운트다운 후 자동 녹화
+4. 술식당 500개 이상 프레임 수집 권장 (`↩ 마지막 녹화 취소`로 실수 삭제 가능)
+5. **💾 CSV 저장** → `ml/data/raw/`에 이동
+
+### 3. 모델 학습
 ```bash
 pip install torch scikit-learn pandas numpy onnx
 python ml/train.py
-```
+학습이 끝나면 ml/models/handseal.onnx가 생성되고 web/models/에 자동으로 복사됩니다. 새로고침하면 바로 반영됩니다.
 
-### 4단계: 모델 배포
-```bash
-cp ml/models/handseal.onnx web/public/models/handseal.onnx
-```
-새로고침하면 ONNX 모델로 자동 전환
 
-## 술식 추가하기
 
-1. `web/src/ui/uiController.js` → `JUTSU_KO`, `JUTSU_COLOR`에 추가
-2. `web/src/effects/effectEngine.js` → `JUTSU_CONFIG`와 파티클 모양 추가
-3. `index.html` → `.jutsu-btn` 버튼 추가
-4. 데이터 수집 후 재학습
+
+
