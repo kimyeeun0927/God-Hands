@@ -55,13 +55,10 @@ God-Hands/
 ├── data/raw/                  # 수집된 CSV 저장 위치
 └── models/                    # 학습 결과 (best.pt, handseal.onnx, labels.json)
 
-
-
 ## 실행 방법
 
 ### 1. 웹앱 실행
 VS Code → web/index.html → Go Live
-
 
 카메라 접근 권한을 허용해주세요. ONNX 모델이 없으면 규칙 기반 fallback으로 동작합니다.
 
@@ -76,6 +73,7 @@ VS Code → web/index.html → Go Live
 ```bash
 pip install torch scikit-learn pandas numpy onnx
 python ml/train.py
+``` ``` ```
 학습이 끝나면 ml/models/handseal.onnx가 생성되고 web/models/에 자동으로 복사됩니다. 새로고침하면 바로 반영됩니다.
 
 
