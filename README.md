@@ -33,27 +33,29 @@ MediaPipe로 손 랜드마크를 추출하고, 자체 학습한 MLP 모델(ONNX)
 
 ## 프로젝트 구조
 
+```
 God-Hands/
-├── web/                          # 프론트엔드 (Live Server로 실행)
+├── web/                # 프론트엔드 (Live Server로 실행)
 │   ├── index.html
 │   ├── models/
-│   │   ├── handseal.onnx         # 학습된 모델 (train.py가 자동 배포)
+│   │   ├── handseal.onnx
 │   │   └── labels.json
 │   └── src/
-│       ├── main.js               # 앱 진입점 — MediaPipe 초기화 / 메인 루프
+│       ├── main.js
 │       ├── core/
-│       │   ├── gestureClassifier.js  # ONNX 추론 + 규칙 기반 fallback
-│       │   └── dataCollector.js      # 학습 데이터 녹화 + CSV 저장
+│       │   ├── gestureClassifier.js
+│       │   └── dataCollector.js
 │       ├── effects/
-│       │   └── arEffectEngine.js     # 캔버스 2D AR 이펙트
+│       │   └── arEffectEngine.js
 │       └── ui/
-│           ├── uiController.js       # UI 상태 관리
+│           ├── uiController.js
 │           └── style.css
-│
-└── ml/                            # 학습 파이프라인 (Python)
-├── train.py                   # 정규화 + 증강 + 학습 + ONNX 변환
-├── data/raw/                  # 수집된 CSV 저장 위치
-└── models/                    # 학습 결과 (best.pt, handseal.onnx, labels.json)
+└── ml/
+    ├── train.py
+    ├── data/raw/
+    └── models/
+```
+
 
 ## 실행 방법
 
@@ -73,7 +75,7 @@ VS Code → web/index.html → Go Live
 ```bash
 pip install torch scikit-learn pandas numpy onnx
 python ml/train.py
-``` ``` ```
+```
 학습이 끝나면 ml/models/handseal.onnx가 생성되고 web/models/에 자동으로 복사됩니다. 새로고침하면 바로 반영됩니다.
 
 
