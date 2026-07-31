@@ -60,9 +60,15 @@ God-Hands/
 ## 실행 방법
 
 ### 1. 웹앱 실행
-VS Code → web/index.html → Go Live
 
-카메라 접근 권한을 허용해주세요. ONNX 모델이 없으면 규칙 기반 fallback으로 동작합니다.
+`web/` 폴더를 루트로 하는 정적 서버로 띄워야 합니다 (모델을 `/models/handseal.onnx` 절대경로로 불러오기 때문에 반드시 `web/` 기준으로 실행).
+
+**Python 사용 시**
+```bash
+cd web
+python -m http.server 5500
+```
+서버 실행 후 브라우저에서 http://localhost:5500 접속. 카메라 접근 권한을 허용해주세요. ONNX 모델이 없으면 규칙 기반 fallback으로 동작합니다.
 
 ### 2. 학습 데이터 수집
 1. 상단 모드 바에서 **DATA COLLECT** 선택
