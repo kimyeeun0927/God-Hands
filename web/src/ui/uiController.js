@@ -3,12 +3,22 @@ const JUTSU_KO = {
   boar:   '돼지 (亥)',
   rabbit: '토끼 (卯)',
   rat:    '쥐 (子)',
+  monkey: '원숭이 (申)',
+  dog:    '개 (戌)',
+  snake:  '뱀 (巳)',
+  o:      'O',
+  x:      'X',
 };
 const JUTSU_COLOR = {
   none:   '#4a5568',
   boar:   '#f9a8d4',
-  rabbit: '86efac',
+  rabbit: '#86efac',
   rat:    '#fcd34d',
+  monkey: '#fdba74',
+  dog:    '#a78bfa',
+  snake:  '#6ee7b7',
+  o:      '#ffffff',
+  x:      '#f87171',
 };
 
 export class UIController {

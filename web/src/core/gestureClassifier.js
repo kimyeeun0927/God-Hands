@@ -1,5 +1,3 @@
-const JUTSU_LABELS = ['none', 'boar', 'rabbit', 'rat', 'monkey', 'dog', 'snake', 'o', 'x'];
-
 export class GestureClassifier {
   constructor() {
     this._lastJutsu = 'none';
@@ -9,8 +7,9 @@ export class GestureClassifier {
 
   async loadModel() {
     try {
-      const ort = await import('https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js');
       this.model = await ort.InferenceSession.create('/models/handseal.onnx');
+      const res = await fetch('/models/labels.json');
+      this.labels = await res.json();
       this.hasModel = true;
     } catch {
       this.hasModel = false;
@@ -38,9 +37,15 @@ export class GestureClassifier {
     if (normalized.left)  input.set(normalized.left,  63);
     const tensor = new ort.Tensor('float32', input, [1, 126]);
     const out    = await this.model.run({ input: tensor });
-    const probs  = out.output.data;
+    const logits = Array.from(out.output.data);
+    const maxL   = Math.max(...logits);
+    const exps   = logits.map(x => Math.exp(x - maxL));
+    const sum    = exps.reduce((a, b) => a + b, 0);
+    const probs  = exps.map(x => x / sum);
     const maxIdx = probs.indexOf(Math.max(...probs));
-    return { jutsu: JUTSU_LABELS[maxIdx], confidence: Math.round(probs[maxIdx] * 100) };
+    const conf   = Math.round(probs[maxIdx] * 100);
+    if (conf < 90) return { jutsu: 'none', confidence: conf };
+    return { jutsu: this.labels[maxIdx], confidence: conf };
   }
 
   _predictRules(normalized) {
@@ -56,8 +61,8 @@ export class GestureClassifier {
     const lWrist = tip(l, 0);
     const wristDist = Math.hypot(rWrist.x - lWrist.x, rWrist.y - lWrist.y);
 
-    // 돼지(亥)
-    const isBoar = wristDist < 0.25 &&
+    // 돼지(亥) — wristDist는 이제 오른손 크기 단위 (스케일 정규화 후)
+    const isBoar = wristDist < 1.0 &&
       down(r,8,6) && down(r,12,10) && down(r,16,14) && down(r,20,18) &&
       down(l,8,6) && down(l,12,10) && down(l,16,14) && down(l,20,18);
 
