@@ -76,8 +76,8 @@ export class Round3Scene {
      'frame:assets/ui/frame_focused.png',
      'enemy_idle:assets/enemies/enemy.png',
      'enemy_hurt:assets/enemies/enemy_attacted.png',
-     'hp_full:assets/ui/fullheart.png',
-     'hp_empty:assets/ui/emptyheart.png',
+     'hp_full:assets/enemies/fullheart.png',
+     'hp_empty:assets/enemies/emptyheart.png',
      'enemy_dead:assets/enemies/enemy_defeated.png',
     ].forEach(s => {
       const [k, ...rest] = s.split(':');
@@ -140,7 +140,7 @@ export class Round3Scene {
   _updateSigning(dt, handState) {
     this._elapsed += dt;
     const target  = this._sequence[this._seqIdx];
-    const matched = handState.gesture === target && handState.confidence >= 40;
+    const matched = handState.masterKey || (handState.gesture === target && handState.confidence >= 40);
     this._matchMs = matched ? this._matchMs + dt : 0;
 
     if (this._matchMs >= CONFIRM_MS) {

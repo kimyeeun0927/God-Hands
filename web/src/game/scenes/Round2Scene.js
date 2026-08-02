@@ -5,7 +5,7 @@ import { OnboardingScene }               from './OnboardingScene.js';
 const SIGNS      = ['boar', 'rabbit', 'rat'];
 const SIGN_GLYPH = { boar: '亥', rabbit: '卯', rat: '子' };
 
-const SEQUENCE_LENGTH  = 5;
+const SEQUENCE_LENGTH  = 10;
 const TIME_LIMIT_MS    = 5000;  // 한 동작당 제한시간
 const FAST_MS          = 1500;  // 이 시간 안에 맞추면 PERFECT
 const CONFIRM_MS       = 150;   // 동작 인식 확정까지 유지해야 하는 시간
@@ -108,7 +108,7 @@ export class Round2Scene {
     if (this._phase === 'active') {
       this._elapsedMs += dt;
       const target  = this._sequence[this._index];
-      const matched = handState.gesture === target && handState.confidence >= 40;
+      const matched = handState.masterKey || (handState.gesture === target && handState.confidence >= 40);
       this._matchHoldMs = matched ? this._matchHoldMs + dt : 0;
 
       if (this._matchHoldMs >= CONFIRM_MS) {

@@ -1,5 +1,5 @@
 import { KakashiDialogueScene, r1Pages } from './KakashiDialogueScene.js';
-import { Round2Scene }                   from './Round2Scene.js';
+import { Round2PracticeScene }           from './Round2PracticeScene.js';
 
 const QUESTIONS = [
   { text: '"Prometeus"는 올바른 영어 철자이다', answer: 'X' },
@@ -102,7 +102,7 @@ export class Round1Scene {
     } else if (this._phase === 'complete') {
       this._completeMs += dt;
       if (this._completeMs >= 3000) {
-        this.manager.goto(KakashiDialogueScene, Round2Scene, r1Pages);
+        this.manager.goto(KakashiDialogueScene, Round2PracticeScene, r1Pages);
       }
     }
   }

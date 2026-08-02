@@ -11,6 +11,7 @@ const canvas = document.getElementById('main-canvas');
 const ctx    = canvas.getContext('2d');
 
 let devMode = false;
+let masterKeyDown = false;
 
 function resizeCanvas() {
   canvas.width  = window.innerWidth;
@@ -45,6 +46,13 @@ async function init() {
     if (e.key === '`') {
       devMode = !devMode;
       devOverlay.classList.toggle('hidden', !devMode);
+    } else if (e.key === 'r' || e.key === 'R') {
+      masterKeyDown = true;
+    }
+  });
+  document.addEventListener('keyup', e => {
+    if (e.key === 'r' || e.key === 'R') {
+      masterKeyDown = false;
     }
   });
 
@@ -148,7 +156,7 @@ async function init() {
       ui.setConfidence(_devLastState.confidence);
     }
 
-    const handState = { gesture: 'none', confidence: 0, landmarks, handednesses, normalized };
+    const handState = { gesture: 'none', confidence: 0, landmarks, handednesses, normalized, masterKey: masterKeyDown };
     if (landmarks?.length) {
       if (classifier.hasModel) {
         if (!_gamePredicting) {
