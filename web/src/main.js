@@ -20,47 +20,49 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
+// ml/train.py normalize_landmarks()와 반드시 동일 로직 유지
 function normalize(landmarks, handednessList) {
-  const result = { right: null, left: null, interhand: null };
+  const result = { right: null, left: null };
   if (!landmarks) return result;
 
-  let rightLms = null, leftLms = null;
+  const raw = { right: null, left: null };
   landmarks.forEach((lms, idx) => {
     const label = handednessList?.[idx]?.[0]?.categoryName;
+    // Tasks API: 미러링 카메라 기준 Left/Right 반전 없음
     const side  = label === 'Left' ? 'right' : 'left';
-    if (side === 'right') rightLms = lms; else leftLms = lms;
+    raw[side] = lms;
   });
 
-  const normalizeHand = (lms) => {
-    if (!lms) return { arr: null, wrist: null, scale: 0 };
-    const wrist  = lms[0];
-    const midMcp = lms[9];
-    const scale  = Math.hypot(midMcp.x - wrist.x, midMcp.y - wrist.y, midMcp.z - wrist.z);
-    const s      = scale > 1e-6 ? scale : 1.0;
-    const arr    = new Float32Array(63);
-    lms.forEach((lm, i) => {
-      arr[i*3]   = (lm.x - wrist.x) / s;
-      arr[i*3+1] = (lm.y - wrist.y) / s;
-      arr[i*3+2] = (lm.z - wrist.z) / s;
-    });
-    return { arr, wrist, scale: scale > 1e-6 ? scale : 0 };
-  };
+  const rWrist  = raw.right ? raw.right[0] : null;
+  const lWrist  = raw.left  ? raw.left[0]  : null;
+  const lAnchor = rWrist ?? lWrist; // 오른손 있으면 오른손 wrist 기준, 없으면 왼손 wrist 기준
 
-  const r = normalizeHand(rightLms);
-  const l = normalizeHand(leftLms);
-  result.right = r.arr;
-  result.left  = l.arr;
-
-  // 손 간 상대 위치 (preprocess.py의 palm_scale_normalize와 동일 공식)
-  const interhand = new Float32Array(4); // dx, dy, dz, dist
-  if (r.scale > 0 && l.scale > 0) {
-    const avgScale = (r.scale + l.scale) / 2;
-    interhand[0] = (r.wrist.x - l.wrist.x) / avgScale;
-    interhand[1] = (r.wrist.y - l.wrist.y) / avgScale;
-    interhand[2] = (r.wrist.z - l.wrist.z) / avgScale;
-    interhand[3] = Math.hypot(r.wrist.x - l.wrist.x, r.wrist.y - l.wrist.y, r.wrist.z - l.wrist.z) / avgScale;
+  // scale: 오른손 wrist → 오른손 중지 MCP(9) 거리 (xy). 오른손 없으면 1.0
+  let scale = 1.0;
+  if (raw.right) {
+    const d = Math.hypot(raw.right[9].x - rWrist.x, raw.right[9].y - rWrist.y);
+    if (d !== 0) scale = d;
   }
-  result.interhand = interhand;
+
+  if (raw.right) {
+    const arr = new Float32Array(63);
+    raw.right.forEach((lm, i) => {
+      arr[i*3]   = (lm.x - rWrist.x) / scale;
+      arr[i*3+1] = (lm.y - rWrist.y) / scale;
+      arr[i*3+2] = (lm.z - rWrist.z) / scale;
+    });
+    result.right = arr;
+  }
+
+  if (raw.left) {
+    const arr = new Float32Array(63);
+    raw.left.forEach((lm, i) => {
+      arr[i*3]   = (lm.x - lAnchor.x) / scale;
+      arr[i*3+1] = (lm.y - lAnchor.y) / scale;
+      arr[i*3+2] = (lm.z - lAnchor.z) / scale;
+    });
+    result.left = arr;
+  }
 
   return result;
 }
