@@ -102,6 +102,8 @@ export class Round1Scene {
     } else if (this._phase === 'complete') {
       this._completeMs += dt;
       if (this._completeMs >= 3000) {
+        this.manager.roundScores.r1    = this.manager.score;
+        this.manager.roundScores.r1Max = QUESTIONS.length * POINTS_PER_Q;
         this.manager.goto(KakashiDialogueScene, Round2PracticeScene, r1Pages);
       }
     }

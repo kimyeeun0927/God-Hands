@@ -13,6 +13,18 @@ const SIGN_ELEMENT_IMG = {
   rabbit: 'wind',
 };
 
+// 실제 모델이 인식하는 손모양 사진(handsigns/) — monkey/snake는 실측 결과
+// 위 속성 테마와 반대로 찍혀있어서(fire.png 포즈가 실제로는 snake로 인식됨)
+// 별도로 분리해서 관리한다.
+const SIGN_HAND_IMG = {
+  monkey: 'grass',
+  dog:    'water',
+  snake:  'fire',
+  boar:   'ground',
+  rat:    'elec',
+  rabbit: 'wind',
+};
+
 const SIGN_LABEL = {
   monkey: '불',
   dog:    '물',
@@ -52,9 +64,8 @@ export class Round2PracticeScene {
 
   init() {
     SIGNS.forEach(sign => {
-      const elem = SIGN_ELEMENT_IMG[sign];
-      this._tryLoad(`sign_${sign}`, `assets/handsigns/${elem}.png`);
-      this._tryLoad(`elem_${sign}`, `assets/element/${elem}.png`);
+      this._tryLoad(`sign_${sign}`, `assets/handsigns/${SIGN_HAND_IMG[sign]}.png`);
+      this._tryLoad(`elem_${sign}`, `assets/element/${SIGN_ELEMENT_IMG[sign]}.png`);
     });
     this._tryLoad('frame', 'assets/ui/frame_focused.png');
   }

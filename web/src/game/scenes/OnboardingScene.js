@@ -345,7 +345,7 @@ export class OnboardingScene {
     ctx.font         = `bold ${Math.floor(H * 0.022)}px 'Mulmaru', sans-serif`;
     ctx.textAlign    = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText('카카시', bx + 28, by);
+    ctx.fillText('시험관', bx + 28, by);
     ctx.restore();
 
     // ── 대사 텍스트 ──

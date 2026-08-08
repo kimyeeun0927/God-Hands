@@ -1,20 +1,30 @@
 import { OnboardingScene } from './OnboardingScene.js';
 
-// 최대 점수: R1(300) + R2(500) + R3(3파동×700 + 킬800) = 3,700 ~ 최고 4,300
-// 등급 기준: 총점 기준 (적 처치 보너스 포함)
-const GRADES = [
-  { min: 3700, grade: 'S', rank: '카게 (影)',     desc: '전설의 닌자다! 최강의 실력!',        color: '#FFD23F', glow: '#FF8C00', outline: '#7A3B00' },
-  { min: 2600, grade: 'A', rank: '조닌 (上忍)',   desc: '엘리트 닌자의 실력이다!',             color: '#C084FC', glow: '#7C3AED', outline: '#3B1A6E' },
-  { min: 1600, grade: 'B', rank: '츄닌 (中忍)',   desc: '합격! 앞으로도 계속 수련하라.',       color: '#60A5FA', glow: '#2563EB', outline: '#1E3A8A' },
-  { min:  800, grade: 'C', rank: '겐닌 (下忍)',   desc: '겨우 합격했다. 아직 갈 길이 멀다.',   color: '#4ADE80', glow: '#16A34A', outline: '#14532D' },
-  { min:    0, grade: 'D', rank: '아카데미 학생', desc: '처음부터 다시 수련이 필요하다...',    color: '#94A3B8', glow: '#475569', outline: '#1E293B' },
-];
+// 등급 판정: 최종 획득 점수 구간으로 상급·중급·하급·탈락을 가른다.
+// (점수가 음수가 되는 경우는 Round2에서 즉시 실격 처리되어 이 화면에 도달하지 않는다.)
+const TIER = {
+  high: { label: '상급', badgeKey: 'rank_high', charKey: 'char_smile', color: '#FFD23F', glow: '#FF8C00' },
+  mid:  { label: '중급', badgeKey: 'rank_mid',  charKey: 'char_mid',   color: '#60A5FA', glow: '#2563EB' },
+  low:  { label: '하급', badgeKey: 'rank_low',  charKey: 'char_chill', color: '#4ADE80', glow: '#16A34A' },
+  fail: { label: '탈락', badgeKey: 'fail',       charKey: null,         color: '#FF4D4D', glow: '#B91C1C' },
+};
 
-function getGrade(score) {
-  return GRADES.find(g => score >= g.min) ?? GRADES[GRADES.length - 1];
+function getTier(rs) {
+  const total = rs.r1 + rs.r2 + rs.r3;
+  if (total >= 4000) return TIER.high;
+  if (total >= 3000) return TIER.mid;
+  if (total >= 1000) return TIER.low;
+  return TIER.fail;
+}
+
+// 음수(라운드2 미스 누적 등)도 안전하게 표시하는 0채움 포맷
+function fmt(n, digits) {
+  const v = Math.round(n);
+  return v < 0 ? String(v) : String(v).padStart(digits, '0');
 }
 
 const ADVANCE_COOLDOWN = 1200;
+const PAPER_RATIO = 602 / 339;
 
 export class Round3ResultScene {
   hideScoreHUD = true;
@@ -25,16 +35,26 @@ export class Round3ResultScene {
     this.ctx      = manager.ctx;
     this._elapsed = 0;
 
-    this._grade        = getGrade(manager.score);
-    this._dispScore    = 0;
-    this._targetScore  = manager.score;
-    this._fistHeld     = false;
+    this._rs   = manager.roundScores;
+    this._tier = getTier(this._rs);
+
+    this._dispTotal   = 0;
+    this._targetTotal = this._rs.r1 + this._rs.r2 + this._rs.r3;
+
+    this._fistHeld        = false;
     this._advanceCooldown = ADVANCE_COOLDOWN;
     this._assets = {};
   }
 
   init() {
-    this._tryLoad('score_label', 'assets/ui/SCORE.png');
+    this._tryLoad('paper',      'assets/ui/report_paper.png');
+    this._tryLoad('rank_high',  'assets/ui/rank_high.png');
+    this._tryLoad('rank_mid',   'assets/ui/rank_mid.png');
+    this._tryLoad('rank_low',   'assets/ui/rank_low.png');
+    this._tryLoad('fail',       'assets/enemies/fail.png');
+    this._tryLoad('char_smile', 'assets/characters/char_smile.png');
+    this._tryLoad('char_mid',   'assets/characters/char.png');
+    this._tryLoad('char_chill', 'assets/characters/char_chill.png');
   }
 
   _tryLoad(key, src) {
@@ -57,10 +77,9 @@ export class Round3ResultScene {
     this._elapsed += dt;
     this._advanceCooldown = Math.max(0, this._advanceCooldown - dt);
 
-    // 점수 카운트업
-    if (this._dispScore < this._targetScore) {
-      const step      = Math.max(10, Math.ceil((this._targetScore - this._dispScore) / 18));
-      this._dispScore = Math.min(this._targetScore, this._dispScore + step);
+    if (this._dispTotal < this._targetTotal) {
+      const step = Math.max(10, Math.ceil((this._targetTotal - this._dispTotal) / 18));
+      this._dispTotal = Math.min(this._targetTotal, this._dispTotal + step);
     }
 
     if (this._advanceCooldown > 0) { this._fistHeld = false; return; }
@@ -68,8 +87,11 @@ export class Round3ResultScene {
     if (fist && !this._fistHeld) {
       this._fistHeld = true;
     } else if (!fist && this._fistHeld) {
-      this._fistHeld        = false;
-      this.manager.score    = 0;
+      this._fistHeld     = false;
+      this.manager.score = 0;
+      this.manager.roundScores = {
+        r1: 0, r1Max: 0, r2: 0, r2Max: 0, r3: 0, r3Max: 0, cleared: false,
+      };
       this.manager.goto(OnboardingScene);
     }
   }
@@ -79,138 +101,197 @@ export class Round3ResultScene {
     const W = canvas.width, H = canvas.height;
     ctx.clearRect(0, 0, W, H);
 
-    // 배경 — 등급 색 틴트
-    const g = this._grade;
-    const tint = this._elapsed < 600
-      ? Math.min(1, this._elapsed / 600)
-      : 1;
-
-    ctx.fillStyle = 'rgba(0,0,0,0.78)';
+    ctx.fillStyle = 'rgba(0,0,0,0.80)';
     ctx.fillRect(0, 0, W, H);
 
-    // 등급별 상단 광원 효과
+    const tint = Math.min(1, this._elapsed / 500);
     ctx.save();
-    const grad = ctx.createRadialGradient(W / 2, 0, 0, W / 2, 0, H * 0.7);
-    grad.addColorStop(0,   `rgba(${hexToRgb(g.glow)},${0.18 * tint})`);
-    grad.addColorStop(1,   'rgba(0,0,0,0)');
-    ctx.fillStyle = grad;
+    const rg = ctx.createRadialGradient(W / 2, H * 0.4, 0, W / 2, H * 0.4, H * 0.75);
+    rg.addColorStop(0, `rgba(${hexToRgb(this._tier.glow)},${0.16 * tint})`);
+    rg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = rg;
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
 
-    // 타이틀
+    const scale = Math.min(1, easeOut(Math.min(1, this._elapsed / 450)));
+    this._renderCertificate(W, H, scale);
+
+    if (this._elapsed > 700) this._renderRestartHint(ctx, W, H, handState);
+  }
+
+  // ── 성적표 본체 ──────────────────────────────────────────────
+  _renderCertificate(W, H, scale) {
+    const ctx = this.ctx;
+
+    const paperW = Math.min(W * 0.80, H * 0.82 * PAPER_RATIO);
+    const paperH = paperW / PAPER_RATIO;
+    const paperX = W / 2 - paperW / 2;
+    const paperY = H * 0.48 - paperH / 2;
+
     ctx.save();
-    ctx.font         = `bold ${Math.floor(H * 0.032)}px 'Mulmaru', sans-serif`;
-    ctx.fillStyle    = 'rgba(245,230,195,0.7)';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('닌자 시험 완료', W / 2, H * 0.1);
-    ctx.restore();
+    ctx.translate(W / 2, H * 0.48);
+    ctx.scale(scale, scale);
+    ctx.translate(-W / 2, -H * 0.48);
 
-    // 등급 카드 (스케일 팝인)
-    const cardScale = Math.min(1, easeOut(Math.min(1, this._elapsed / 500)));
-    this._renderGradeCard(ctx, W, H, cardScale);
-
-    // SCORE 표시 (등급 카드 이후 등장)
-    const scoreAlpha = Math.max(0, Math.min(1, (this._elapsed - 400) / 300));
-    if (scoreAlpha > 0) {
-      ctx.save();
-      ctx.globalAlpha = scoreAlpha;
-      this._renderPixelScore(ctx, W, H, H * 0.72);
-      ctx.restore();
+    const paper = this._assets.paper;
+    if (paper) {
+      ctx.drawImage(paper, paperX, paperY, paperW, paperH);
+    } else {
+      ctx.fillStyle   = '#EBD9A8';
+      ctx.strokeStyle = '#8B6914';
+      ctx.lineWidth   = 4;
+      this._rrect(ctx, paperX, paperY, paperW, paperH, 14);
+      ctx.fill(); ctx.stroke();
     }
 
-    // 재시작 안내
-    if (this._elapsed > 900) {
-      this._renderRestartHint(ctx, W, H, handState);
+    // 여백 안쪽 콘텐츠 영역
+    const padX = paperW * 0.10;
+    const padY = paperH * 0.12;
+    const inX  = paperX + padX;
+    const inY  = paperY + padY;
+    const inW  = paperW - padX * 2;
+    const inH  = paperH - padY * 2;
+
+    const titleH = inH * 0.30;
+    this._renderTitle(ctx, inX, inY, inW, titleH);
+
+    const bodyY = inY + titleH;
+    const bodyH = inH - titleH;
+    this._renderBody(ctx, inX, bodyY, inW, bodyH);
+
+    ctx.restore();
+  }
+
+  // ── 상단 타이틀 (등급/탈락) ──────────────────────────────────
+  _renderTitle(ctx, x, y, w, h) {
+    const cx = x + w / 2, cy = y + h / 2;
+    const tier = this._tier;
+
+    if (tier === TIER.fail) {
+      const img = this._assets.fail;
+      if (img) {
+        const dh = h * 0.85;
+        const dw = dh * (img.naturalWidth / img.naturalHeight);
+        ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
+      } else {
+        ctx.save();
+        ctx.font         = `bold ${Math.floor(h * 0.62)}px 'Mulmaru', sans-serif`;
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.strokeStyle  = '#4A0000'; ctx.lineWidth = 8; ctx.lineJoin = 'round';
+        ctx.strokeText('탈락', cx, cy);
+        ctx.fillStyle = tier.color;
+        ctx.fillText('탈락', cx, cy);
+        ctx.restore();
+      }
+      return;
+    }
+
+    const badge  = this._assets[tier.badgeKey];
+    const suffix = '닌자 합격증';
+
+    ctx.save();
+    ctx.font = `bold ${Math.floor(h * 0.4)}px 'Mulmaru', sans-serif`;
+    const suffixW = ctx.measureText(suffix).width;
+    const badgeH  = h * 0.7;
+    const badgeW  = badge ? badgeH * (badge.naturalWidth / badge.naturalHeight) : ctx.measureText(tier.label).width * 1.1;
+    const gap     = w * 0.02;
+    const totalW  = badgeW + gap + suffixW;
+    let px = cx - totalW / 2;
+
+    if (badge) {
+      ctx.drawImage(badge, px, cy - badgeH / 2, badgeW, badgeH);
+    } else {
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 7; ctx.lineJoin = 'round';
+      ctx.strokeText(tier.label, px, cy);
+      ctx.fillStyle = tier.color;
+      ctx.fillText(tier.label, px, cy);
+    }
+    px += badgeW + gap;
+
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 7; ctx.lineJoin = 'round';
+    ctx.strokeText(suffix, px, cy);
+    ctx.fillStyle = 'rgba(245,230,195,0.95)';
+    ctx.fillText(suffix, px, cy);
+    ctx.restore();
+  }
+
+  // ── 본문: 좌측 단계별 점수 + 우측 캐릭터 ─────────────────────
+  _renderBody(ctx, x, y, w, h) {
+    const tier   = this._tier;
+    const leftW  = w * 0.62;
+    const rightX = x + leftW;
+    const rightW = w - leftW;
+
+    this._renderScoreRows(ctx, x, y, leftW, h);
+
+    if (tier.charKey) {
+      const img = this._assets[tier.charKey];
+      if (img) {
+        const dh = h * 0.92;
+        const dw = dh * (img.naturalWidth / img.naturalHeight);
+        const cx = rightX + rightW / 2;
+        const cy = y + h / 2;
+        ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
+      }
     }
   }
 
-  // ── 등급 카드 ─────────────────────────────────────────────────
-  _renderGradeCard(ctx, W, H, scale) {
-    const g      = this._grade;
-    const cardW  = Math.min(W * 0.62, H * 0.6);
-    const cardH  = H * 0.32;
-    const cardX  = W / 2 - cardW / 2;
-    const cardY  = H * 0.22 - cardH / 2;
+  _renderScoreRows(ctx, x, y, w, h) {
+    const rs = this._rs;
+    const rows = [
+      { label: '1단계', earned: rs.r1, max: rs.r1Max },
+      { label: '2단계', earned: rs.r2, max: rs.r2Max },
+      { label: '3단계', earned: rs.r3, max: rs.r3Max },
+    ];
 
-    ctx.save();
-    ctx.translate(W / 2, H * 0.22);
-    ctx.scale(scale, scale);
-    ctx.translate(-W / 2, -H * 0.22);
+    const rowH   = h * 0.19;
+    const startY = y + h * 0.08;
+    const labelX = x;
+    const valueRight = x + w * 0.86;
 
-    // 카드 배경
-    ctx.fillStyle   = 'rgba(12,7,2,0.92)';
-    this._rrect(ctx, cardX, cardY, cardW, cardH, 14);
-    ctx.fill();
+    rows.forEach((row, i) => {
+      const ry = startY + rowH * i;
+      ctx.save();
+      ctx.font         = `bold ${Math.floor(rowH * 0.42)}px 'Mulmaru', sans-serif`;
+      ctx.fillStyle    = '#3A2A0F';
+      ctx.textAlign    = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(row.label, labelX, ry);
 
-    // 카드 테두리
-    ctx.strokeStyle = g.color;
-    ctx.lineWidth   = 3.5;
-    this._rrect(ctx, cardX, cardY, cardW, cardH, 14);
-    ctx.stroke();
-
-    const cx = W / 2;
-    const cy = cardY + cardH / 2;
-
-    // 등급 글자 (대형)
-    ctx.font      = `bold ${Math.floor(cardH * 0.62)}px 'Mulmaru', sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.strokeStyle = g.outline; ctx.lineWidth = 10; ctx.lineJoin = 'round';
-    ctx.strokeText(g.grade, cx - cardW * 0.18, cy);
-    ctx.fillStyle = g.color;
-    ctx.fillText(g.grade, cx - cardW * 0.18, cy);
+      ctx.font      = `${Math.floor(rowH * 0.4)}px 'Mulmaru', sans-serif`;
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#5A4419';
+      ctx.fillText(`${fmt(row.earned, 3)}점 / ${fmt(row.max, 3)}점`, valueRight, ry);
+      ctx.restore();
+    });
 
     // 구분선
-    ctx.strokeStyle = g.color + '55';
-    ctx.lineWidth   = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(cx + cardW * 0.04, cardY + cardH * 0.2);
-    ctx.lineTo(cx + cardW * 0.04, cardY + cardH * 0.8);
-    ctx.stroke();
-
-    // 급수명 + 설명
-    ctx.textAlign = 'left';
-    ctx.font      = `bold ${Math.floor(cardH * 0.175)}px 'Mulmaru', sans-serif`;
-    ctx.strokeStyle = '#000'; ctx.lineWidth = 5;
-    ctx.strokeText(g.rank, cx + cardW * 0.09, cy - cardH * 0.12);
-    ctx.fillStyle = g.color;
-    ctx.fillText(g.rank, cx + cardW * 0.09, cy - cardH * 0.12);
-
-    ctx.font      = `${Math.floor(cardH * 0.1)}px 'Mulmaru', sans-serif`;
-    ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
-    ctx.strokeText(g.desc, cx + cardW * 0.09, cy + cardH * 0.16);
-    ctx.fillStyle = 'rgba(245,230,195,0.75)';
-    ctx.fillText(g.desc, cx + cardW * 0.09, cy + cardH * 0.16);
-
-    ctx.restore();
-  }
-
-  // ── 픽셀 아트 SCORE ──────────────────────────────────────────
-  _renderPixelScore(ctx, W, H, centerY) {
-    const scoreImg = this._assets.score_label;
-    if (scoreImg) {
-      const sw = Math.min(W * 0.28, H * 0.12 * (scoreImg.naturalWidth / scoreImg.naturalHeight));
-      const sh = sw * (scoreImg.naturalHeight / scoreImg.naturalWidth);
-      ctx.drawImage(scoreImg, W / 2 - sw / 2, centerY - sh / 2, sw, sh);
-    } else {
-      ctx.save();
-      ctx.font      = `${Math.floor(H * 0.022)}px 'Mulmaru', sans-serif`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.strokeStyle = '#7A3B00'; ctx.lineWidth = 5; ctx.lineJoin = 'round';
-      ctx.strokeText('✦  SCORE  ✦', W / 2, centerY);
-      ctx.fillStyle = '#FFD23F';
-      ctx.fillText('✦  SCORE  ✦', W / 2, centerY);
-      ctx.restore();
-    }
-
-    const numStr = String(Math.round(this._dispScore)).padStart(6, '0');
+    const divY = startY + rowH * 3 - rowH * 0.12;
     ctx.save();
-    ctx.font      = `bold ${Math.floor(H * 0.088)}px 'Mulmaru', sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.strokeStyle = '#111'; ctx.lineWidth = 8; ctx.lineJoin = 'round';
-    ctx.strokeText(numStr, W / 2, centerY + H * 0.12);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(numStr, W / 2, centerY + H * 0.12);
+    ctx.strokeStyle = 'rgba(139,105,20,0.5)';
+    ctx.lineWidth   = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, divY);
+    ctx.lineTo(x + w * 0.92, divY);
+    ctx.stroke();
+    ctx.restore();
+
+    // 최종 점수
+    const finalY = divY + rowH * 0.62;
+    ctx.save();
+    ctx.font         = `bold ${Math.floor(rowH * 0.5)}px 'Mulmaru', sans-serif`;
+    ctx.fillStyle    = '#2C1A00';
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('최종 점수', labelX, finalY);
+
+    ctx.font      = `bold ${Math.floor(rowH * 0.52)}px 'Mulmaru', sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#2C1A00';
+    ctx.fillText(`${fmt(this._dispTotal, 6)}점`, valueRight, finalY);
     ctx.restore();
   }
 
@@ -222,12 +303,12 @@ export class Round3ResultScene {
 
     ctx.save();
     if (isFist && !cooling) {
-      ctx.fillStyle   = '#FFB800';
-      ctx.font        = `bold ${Math.floor(H * 0.022)}px 'Mulmaru', sans-serif`;
+      ctx.fillStyle = '#FFB800';
+      ctx.font      = `bold ${Math.floor(H * 0.022)}px 'Mulmaru', sans-serif`;
     } else {
       ctx.globalAlpha = 0.5 + 0.5 * pulse;
-      ctx.fillStyle   = 'rgba(245,230,195,0.65)';
-      ctx.font        = `${Math.floor(H * 0.02)}px 'Mulmaru', sans-serif`;
+      ctx.fillStyle    = 'rgba(245,230,195,0.65)';
+      ctx.font         = `${Math.floor(H * 0.02)}px 'Mulmaru', sans-serif`;
     }
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
@@ -235,7 +316,7 @@ export class Round3ResultScene {
       isFist && !cooling
         ? '✊ 감지됨 — 손을 펴서 처음부터 시작'
         : '주먹을 쥐었다 펴서 처음부터 시작 ▶',
-      W / 2, H * 0.92
+      W / 2, H * 0.94
     );
     ctx.restore();
   }

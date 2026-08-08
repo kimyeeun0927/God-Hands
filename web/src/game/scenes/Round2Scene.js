@@ -2,8 +2,8 @@ import { KakashiDialogueScene, r2Pages } from './KakashiDialogueScene.js';
 import { Round3IntroScene }              from './Round3IntroScene.js';
 import { OnboardingScene }               from './OnboardingScene.js';
 
-const SIGNS      = ['boar', 'rabbit', 'rat'];
-const SIGN_GLYPH = { boar: '亥', rabbit: '卯', rat: '子' };
+const SIGNS      = ['boar', 'rabbit', 'rat', 'monkey', 'dog', 'snake'];
+const SIGN_GLYPH = { boar: '亥', rabbit: '卯', rat: '子', monkey: '申', dog: '戌', snake: '巳' };
 
 const SEQUENCE_LENGTH  = 10;
 const TIME_LIMIT_MS    = 5000;  // 한 동작당 제한시간
@@ -15,6 +15,17 @@ const ADVANCE_COOLDOWN = 550;
 // perfect: +100 / success: +50 / miss: -100
 // 콤보 보너스: (콤보수 - 1) × 50  (1콤보 = 0점, 2콤보 = +50, 3콤보 = +100 ...)
 const POINTS = { perfect: 100, success: 50, miss: -100 };
+
+// 성적표용 이론상 최고점 (10문제 전부 PERFECT, 콤보 안 끊길 때)
+function computeRound2Max() {
+  let max = 0, combo = 0;
+  for (let i = 0; i < SEQUENCE_LENGTH; i++) {
+    combo++;
+    max += POINTS.perfect + Math.max(0, combo - 1) * 50;
+  }
+  return max;
+}
+const ROUND2_MAX = computeRound2Max();
 
 const FEEDBACK_STYLE = {
   perfect: { text: 'PERFECT', color: '#FFD23F', glow: '#FF8C00', asset: 'fb_perfect' },
@@ -49,6 +60,7 @@ export class Round2Scene {
 
     this._feedback = null; // { type, ms, combo, comboBonus, delta }
     this._combo    = 0;
+    this._results  = []; // 각 시퀀스 판정 결과 ('perfect'|'success'|'miss')
 
     this._assets = {};
   }
@@ -57,9 +69,16 @@ export class Round2Scene {
     this._tryLoad('sign_boar',   'assets/handsigns/ground.png');
     this._tryLoad('sign_rabbit', 'assets/handsigns/wind.png');
     this._tryLoad('sign_rat',    'assets/handsigns/elec.png');
+    // 실측 결과 monkey/snake는 fire.png/grass.png가 서로 바뀐 포즈라 교체
+    this._tryLoad('sign_monkey', 'assets/handsigns/grass.png');
+    this._tryLoad('sign_dog',    'assets/handsigns/water.png');
+    this._tryLoad('sign_snake',  'assets/handsigns/fire.png');
     this._tryLoad('elem_boar',   'assets/element/ground.png');
     this._tryLoad('elem_rabbit', 'assets/element/wind.png');
     this._tryLoad('elem_rat',    'assets/element/elec.png');
+    this._tryLoad('elem_monkey', 'assets/element/fire.png');
+    this._tryLoad('elem_dog',    'assets/element/water.png');
+    this._tryLoad('elem_snake',  'assets/element/grass.png');
     this._tryLoad('frame',       'assets/ui/frame_focused.png');
     this._tryLoad('fb_perfect',  'assets/gamehelper/PERFECT.png');
     this._tryLoad('fb_success',  'assets/gamehelper/SUCCESS.png');
@@ -100,6 +119,9 @@ export class Round2Scene {
       this._disqualMs += dt;
       if (this._disqualMs >= 3000) {
         this.manager.score = 0;
+        this.manager.roundScores = {
+          r1: 0, r1Max: 0, r2: 0, r2Max: 0, r3: 0, r3Max: 0, cleared: false,
+        };
         this.manager.goto(OnboardingScene);
       }
       return;
@@ -134,12 +156,16 @@ export class Round2Scene {
     } else if (this._phase === 'complete') {
       this._completeMs += dt;
       if (this._completeMs >= 1800) {
-        this.manager.goto(KakashiDialogueScene, Round3IntroScene, r2Pages);
+        this.manager.roundScores.r2    = this.manager.score - this.manager.roundScores.r1;
+        this.manager.roundScores.r2Max = ROUND2_MAX;
+        const allCorrect = this._results.every(r => r !== 'miss');
+        this.manager.goto(KakashiDialogueScene, Round3IntroScene, score => r2Pages(score, allCorrect));
       }
     }
   }
 
   _judge(type) {
+    this._results.push(type);
     this._combo = type === 'perfect' ? this._combo + 1 : 0;
     const comboBonus = type === 'perfect' ? Math.max(0, this._combo - 1) * 50 : 0;
     const pts = POINTS[type] + comboBonus;

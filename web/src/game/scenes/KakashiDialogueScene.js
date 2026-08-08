@@ -1,47 +1,56 @@
 const ADVANCE_COOLDOWN = 700;
 const CHAR_SPEED_MS    = 38;
 
+// 캐릭터 표정 에셋 — 페이지별 char 필드로 지정, 생략 시 'default'(char.png)
+const CHAR_ASSETS = {
+  default:   'assets/characters/char.png',
+  angry:     'assets/characters/char_angry.png',
+  chill:     'assets/characters/char_chill.png',
+  smile:     'assets/characters/char_smile.png',
+  surprised: 'assets/characters/char_surprised.png',
+};
+
 export function r1Pages(score) {
   const open = score >= 300
-    ? ['후우... 꽤 하는군.', '예상보다 잘 했다.']
+    ? { lines: ['후우... 꽤 하는군.', '예상보다 잘 했다.'], char: 'surprised' }
     : score >= 200
-    ? ['그래... 나쁘진 않았다.', '아직 다듬을 부분은 있지만.']
-    : ['흠... 아직 갈 길이 멀군.', '하지만 포기하기엔 이르다.'];
+    ? { lines: ['그래... 나쁘진 않았다.', '아직 다듬을 부분은 있지만.'] }
+    : { lines: ['흠... 아직 갈 길이 멀군.', '하지만 포기하기엔 이르다.'], char: 'angry' };
   return [
-    { lines: open },
+    open,
     { lines: ['다음은 두 번째 시험이다.'] },
     { lines: ['시험에 앞서 닌자의 필수 덕목,', '수인을 설명하겠다.'] },
     { lines: ['수인은 손으로 특정 모양을 맺어', '차크라를 이용해 공격, 혹은', '방어할 수 있는 전법이다.'] },
     { lines: ['수인에는 6가지가 있다.', '불, 물, 풀, 땅, 전기, 그리고 바람.'] },
-    { lines: ['자, 화면에 보이는 수인을', '따라해봐라.'] },
+    { lines: ['자, 화면에 보이는 수인을', '따라해봐라.'], char: 'chill' },
   ];
 }
 
 export function r2IntroPages(_score) {
   return [
-    { lines: ['좋다.', '두 번째 시험에서는 수인을', '얼마나 빠르게 맺을 수 있는 가를 평가한다.'] },
+    { lines: ['좋다.', '두 번째 시험에서는 수인을', '얼마나 빠르게 맺을 수 있는 가를 평가한다.'], char: 'smile' },
     { lines: ['빠르게 맞추면 PERFECT,', '맞추면 SUCCESS, 틀리면 MISS다.', '콤보를 이어가면 추가 점수가 붙는다.'] },
-    { lines: ['자... 집중해라.'] },
+    { lines: ['자... 집중해라.'], char: 'angry' },
   ];
 }
 
-export function r2Pages(score) {
-  const open = score >= 600
-    ? ['잘 해냈군.', '순서까지 정확히 기억하다니... 대단하다.']
+export function r2Pages(score, allCorrect = false) {
+  const open = allCorrect || score >= 600
+    ? { lines: ['잘 해냈군.', '순서까지 정확히 기억하다니... 대단하다.'], char: 'smile' }
     : score >= 300
-    ? ['어렵긴 했지만... 해냈군.', '인정한다.']
-    : ['쉽지 않았겠지.', '그래도 버텨낸 건 칭찬할 만하다.'];
+    ? { lines: ['어렵긴 했지만... 해냈군.', '인정한다.'], char: 'surprised' }
+    : { lines: ['쉽지 않았겠지.', '그래도 버텨낸 건 칭찬할 만하다.'], char: 'chill' };
   return [
-    { lines: open },
-    { lines: ['이제 마지막 시험이다.', '이번엔... 실전이다.'] },
+    open,
+    { lines: ['이제 마지막 시험이다.', '이번엔... 실전이다.'], char: 'angry' },
     { lines: ['전서구 파동이 날아올 것이다.', '닌자 인장으로 파동을 막아내라.', '콤보와 정확도가 승패를 가른다.'] },
-    { lines: ['... 무운을 빈다.'] },
+    { lines: ['... 무운을 빈다.'], char: 'chill' },
   ];
 }
 
 export function r3Pages(_score) {
   return [
-    { lines: ['... 수고했다.', '마지막까지 포기하지 않았군.'] },
+    { lines: ['... 수고했다.', '마지막까지 포기하지 않았군.'], char: 'smile' },
     { lines: ['이것으로 닌자 시험은 모두 끝이다.'] },
     { lines: ['결과를 발표하겠다.'] },
   ];
@@ -63,13 +72,19 @@ export class KakashiDialogueScene {
     this._typeMs   = 0;
     this._cooldown = ADVANCE_COOLDOWN;
     this._fistHeld = false;
-    this._kakashi  = null;
+    this._assets   = {};
   }
 
   init() {
+    Object.entries(CHAR_ASSETS).forEach(([key, src]) => this._tryLoad(key, src));
+  }
+
+  _tryLoad(key, src) {
     const img = new Image();
-    img.src = 'assets/characters/char.png';
-    this._kakashi = img;
+    img.onload  = () => { this._assets[key] = img; };
+    img.onerror = () => {};
+    img.src = src;
+    if (img.complete && img.naturalWidth > 0) this._assets[key] = img;
   }
 
   _isFist(handState) {
@@ -123,8 +138,9 @@ export class KakashiDialogueScene {
     ctx.fillRect(0, 0, W, H);
 
     // 캐릭터 — 0.75배, 왼쪽 하단으로
-    const img = this._kakashi;
-    if (img?.complete && img.naturalWidth > 0) {
+    const page = this._pages[this._page];
+    const img  = this._assets[page.char || 'default'];
+    if (img) {
       let pw = Math.min(H * 0.55, W * 0.28) * 1.5;
       let ph = pw * 1.4;
       if (ph > H * 0.95) { ph = H * 0.95; pw = ph / 1.4; }
@@ -185,11 +201,10 @@ export class KakashiDialogueScene {
     ctx.font         = `bold ${Math.floor(H * 0.022)}px 'Mulmaru', sans-serif`;
     ctx.textAlign    = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText('카카시', bx + 28, by);
+    ctx.fillText('시험관', bx + 28, by);
     ctx.restore();
 
     // 타자기 텍스트
-    const page  = this._pages[this._page];
     const total = this._totalChars(page);
     let   rem   = this._charIdx;
     ctx.save();
